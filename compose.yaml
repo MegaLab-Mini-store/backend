@@ -18,15 +18,17 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    profiles:
+      - db
 
   backend:
     build: .
     image: ministore-backend:latest
     container_name: ministore-backend
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ministore
-      SPRING_DATASOURCE_USERNAME: ministore
-      SPRING_DATASOURCE_PASSWORD: ministore
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/ministore}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-ministore}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-ministore}
     ports:
       - "127.0.0.1:8080:8080"
     networks:
@@ -34,6 +36,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+        required: false
     restart: unless-stopped
 
 networks:

@@ -30,7 +30,7 @@
 Для запуска backend и PostgreSQL необходим Docker.
 
 ```bash
-docker compose up -d --build
+docker compose --profile db up -d --build
 ```
 
 Проверить состояние контейнеров:
