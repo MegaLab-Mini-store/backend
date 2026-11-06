@@ -3,14 +3,10 @@ package kg.megalab.ministorebackend;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -19,14 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
-@TestPropertySource(properties = {
-        "app.jwt.secret=test-secret-test-secret-test-secret-123",
-        "app.cashier.password-hash=$2a$10$7EqJtq98hPqEX7fNZaFWoOa5Zk4m1m1m1m1m1m1m1m1m1m1m1m1m1"
-})
 class WorkspaceControllerTest {
-
-    @Container @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16");
 
     @Autowired MockMvc mvc;
 

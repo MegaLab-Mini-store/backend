@@ -11,10 +11,10 @@ public class StoreStatsRepository {
 
     // нужны имена из db/migration после merge develop
     private static final String PRODUCTS = "products";
-    private static final String CUSTOMERS = "customers";
+    private static final String CUSTOMERS = "clients";
     private static final String SALES = "sales";
     private static final String SALES_DATE_COL = "created_at";
-    private static final String RECEIPTS = "stock_receipts";
+    private static final String RECEIPTS = "deliveries";
     private static final String RECEIPTS_DATE_COL = "created_at";
 
     private final JdbcClient jdbc;
