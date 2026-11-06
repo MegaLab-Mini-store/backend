@@ -22,3 +22,12 @@ spring:
 
   flyway:
     enabled: true
+
+app:
+  timezone: Asia/Bishkek
+  cashier:
+    login: ${CASHIER_LOGIN:cashier}
+    password-hash: ${CASHIER_PASSWORD_HASH}
+  jwt:
+    secret: ${JWT_SECRET}
+    ttl-hours: 12
