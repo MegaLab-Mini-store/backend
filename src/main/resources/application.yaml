@@ -27,7 +27,7 @@ app:
   timezone: Asia/Bishkek
   cashier:
     login: ${CASHIER_LOGIN:cashier}
-    password-hash: ${CASHIER_PASSWORD_HASH}
+    password-hash: ${CASHIER_PASSWORD_HASH:$2a$12$.cL.E90pTItnlFB0njyVy.iBxzrUFYVQn5jtUarphSSPk344js17e}
   jwt:
-    secret: ${JWT_SECRET}
+    secret: ${JWT_SECRET:MCPvGgDXt30oPglQgLJwNCh17xDej9TjAtykmI483Of}
     ttl-hours: 12
