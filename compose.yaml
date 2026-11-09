@@ -6,8 +6,6 @@ services:
       POSTGRES_DB: ministore
       POSTGRES_USER: ministore
       POSTGRES_PASSWORD: ministore
-    ports:
-      - "127.0.0.1:5432:5432"
     networks:
       - app-network
     volumes:

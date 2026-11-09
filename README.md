@@ -66,7 +66,7 @@ docker compose down -v
 | Swagger UI | <http://localhost:8080/swagger-ui.html> |
 | OpenAPI JSON | <http://localhost:8080/v3/api-docs> |
 | Health-check | <http://localhost:8080/actuator/health> |
-| PostgreSQL | `localhost:5432` |
+| PostgreSQL | `postgres:5432` внутри Docker-сети; порт наружу не публикуется |
 
 ## API
 
