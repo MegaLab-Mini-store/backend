@@ -6,8 +6,6 @@ services:
       POSTGRES_DB: ministore
       POSTGRES_USER: ministore
       POSTGRES_PASSWORD: ministore
-    ports:
-      - "127.0.0.1:5432:5432"
     networks:
       - app-network
     volumes:
@@ -29,6 +27,8 @@ services:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/ministore}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-ministore}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-ministore}
+      MINISTORE_OWNER_USERNAME: ${MINISTORE_OWNER_USERNAME:-}
+      MINISTORE_OWNER_PASSWORD: ${MINISTORE_OWNER_PASSWORD:-}
     ports:
       - "127.0.0.1:8080:8080"
     networks:
