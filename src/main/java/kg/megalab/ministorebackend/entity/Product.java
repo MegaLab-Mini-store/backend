@@ -1,4 +1,5 @@
 package kg.megalab.ministorebackend.entity;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Column;
@@ -28,6 +29,7 @@ public class Product {
     @Column(name = "stock_quantity", nullable = false)
     private Integer stockQuantity;
     @Column(name = "is_active", nullable = false)
+    @JsonProperty("isActive")
     private Boolean isActive;
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
@@ -83,12 +85,14 @@ public class Product {
         this.stockQuantity = stockQuantity;
     }
 
-    public Boolean getActive() {
+    @JsonProperty("isActive")
+    public Boolean getIsActive() {
         return isActive;
     }
 
-    public void setActive(Boolean active) {
-        isActive = active;
+    @JsonProperty("isActive")
+    public void setIsActive(Boolean isActive) {
+        this.isActive = isActive;
     }
 
     public OffsetDateTime getUpdatedAt() {
