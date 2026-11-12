@@ -1,7 +1,14 @@
 package kg.megalab.ministorebackend.exception;
 
-public class ResourceNotFoundException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class ResourceNotFoundException extends AppException {
     public ResourceNotFoundException(String message) {
-        super(message);
+        super(
+                HttpStatus.NOT_FOUND,
+                "Ресурс не найден",
+                "RESOURCE_NOT_FOUND",
+                message
+        );
     }
 }

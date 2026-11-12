@@ -48,12 +48,12 @@ public class SaleCheckoutService {
 
     @Transactional(readOnly = true)
     public SaleCalculationResponse calculateAndValidateReceipt(SaleCheckoutRequest request) {
-        Map<Integer, Integer> mergedQuantities = new LinkedHashMap<>();
+        Map<Long, Integer> mergedQuantities = new LinkedHashMap<>();
         for (SaleItemRequest item : request.items()) {
             mergedQuantities.merge(item.productId(), item.quantity(), Integer::sum);
         }
 
-        Map<Integer, Product> productsMap = productRepository.findAllById(mergedQuantities.keySet())
+        Map<Long, Product> productsMap = productRepository.findAllById(mergedQuantities.keySet())
                 .stream()
                 .filter(Product::getIsActive)
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
@@ -61,8 +61,8 @@ public class SaleCheckoutService {
         List<SaleItemResponse> calculatedItems = new ArrayList<>();
         long totalAmount = 0L;
 
-        for (Map.Entry<Integer, Integer> entry : mergedQuantities.entrySet()) {
-            Integer productId = entry.getKey();
+        for (Map.Entry<Long, Integer> entry : mergedQuantities.entrySet()) {
+            Long productId = entry.getKey();
             Integer requestedQty = entry.getValue();
 
             Product product = productsMap.get(productId);

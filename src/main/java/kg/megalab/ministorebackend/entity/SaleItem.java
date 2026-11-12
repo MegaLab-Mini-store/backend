@@ -1,20 +1,21 @@
 package kg.megalab.ministorebackend.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "sale_items")
 @Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SaleItem {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sale_id", nullable = false)
@@ -24,20 +25,28 @@ public class SaleItem {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
+    @Positive
     @Column(name = "quantity", nullable = false)
     private Integer quantity;
 
+    @PositiveOrZero
     @Column(name = "unit_price", nullable = false)
     private Long unitPrice;
 
+    @PositiveOrZero
     @Column(name = "subtotal", nullable = false)
     private Long subtotal;
 
-    @PrePersist
-    @PreUpdate
-    public void calculateSubtotal() {
-        if (this.quantity != null && this.unitPrice != null) {
-            this.subtotal = this.quantity * this.unitPrice;
-        }
+    public static SaleItem of(Product product, int quantity) {
+        SaleItem item = new SaleItem();
+        item.product = product;
+        item.quantity = quantity;
+        item.unitPrice = product.getSalePrice();
+        item.subtotal = item.unitPrice * quantity;
+        return item;
+    }
+
+    void setSale(Sale sale) {
+        this.sale = sale;
     }
 }

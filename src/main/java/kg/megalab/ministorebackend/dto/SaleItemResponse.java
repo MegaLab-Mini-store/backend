@@ -1,7 +1,7 @@
 package kg.megalab.ministorebackend.dto;
 
 public record SaleItemResponse(
-        Integer productId,
+        Long productId,
         String productName,
         Long unitPrice,
         Integer quantity,
