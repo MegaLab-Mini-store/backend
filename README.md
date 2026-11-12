@@ -66,7 +66,7 @@ docker compose down -v
 | Swagger UI | <http://localhost:8080/swagger-ui.html> |
 | OpenAPI JSON | <http://localhost:8080/v3/api-docs> |
 | Health-check | <http://localhost:8080/actuator/health> |
-| PostgreSQL | `localhost:5432` |
+| PostgreSQL | `postgres:5432` внутри Docker-сети; порт наружу не публикуется |
 
 ## API
 
@@ -88,3 +88,16 @@ GET /actuator/health
 
 Интерактивная документация реализованных endpoint'ов автоматически формируется
 в формате OpenAPI и доступна в Swagger UI после запуска приложения.
+
+### Вход кассира (US-05)
+
+Для первого запуска задайте `MINISTORE_OWNER_USERNAME` и `MINISTORE_OWNER_PASSWORD`
+(минимум 12 символов) в окружении backend или в локальном `.env` для Docker Compose.
+Пользователь создаётся один раз с хешем BCrypt; повторный запуск не меняет его пароль.
+Не добавляйте `.env` в Git. Если обе переменные не заданы, учётная запись не создаётся.
+
+`POST /api/auth/login` принимает JSON `{"username":"...","password":"..."}` и
+возвращает `token`, `expiresAt`, `username`, `role`. Ошибка учётных данных даёт `401`.
+Передавайте токен в `Authorization: Bearer <token>` для `GET /api/auth/me` и
+`POST /api/auth/logout`. Сессия действует 30 дней, хранится в БД как SHA-256 хеш
+и может быть отозвана через logout. Пароль и токен в открытом виде в БД не сохраняются.
