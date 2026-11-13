@@ -66,14 +66,25 @@ public class ProductService {
                     });
         }
 
+
         existingProduct.setBarcode(product.getBarcode());
         existingProduct.setName(product.getName());
         existingProduct.setPurchasePrice(product.getPurchasePrice());
         existingProduct.setSalePrice(product.getSalePrice());
-        existingProduct.setStockQuantity(product.getStockQuantity());
+
+        int difference = product.getStockQuantity()
+                - existingProduct.getStockQuantity();
+
+        if (difference > 0) {
+            existingProduct.increaseStock(difference);
+        } else if (difference < 0) {
+            existingProduct.decreaseStock(-difference);
+        }
+
         existingProduct.setIsActive(product.getIsActive());
 
         return productRepository.save(existingProduct);
+
     }
 
     public Product getProductById(Long id) {
