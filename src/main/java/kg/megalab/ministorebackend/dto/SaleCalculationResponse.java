@@ -4,5 +4,6 @@ import java.util.List;
 
 public record SaleCalculationResponse(
         List<SaleItemResponse> items,
-        Long totalAmount
+        Long totalAmount,
+        ClientResponse client
 ) {}
