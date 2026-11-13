@@ -1,9 +1,6 @@
 package kg.megalab.ministorebackend.service;
 
-import kg.megalab.ministorebackend.dto.SaleCalculationResponse;
-import kg.megalab.ministorebackend.dto.SaleCheckoutRequest;
-import kg.megalab.ministorebackend.dto.SaleItemRequest;
-import kg.megalab.ministorebackend.dto.SaleItemResponse;
+import kg.megalab.ministorebackend.dto.*;
 import kg.megalab.ministorebackend.entity.Product;
 import kg.megalab.ministorebackend.exception.InsufficientStockException;
 import kg.megalab.ministorebackend.exception.ResourceNotFoundException;
@@ -24,6 +21,7 @@ import java.util.stream.Collectors;
 public class SaleCheckoutService {
 
     private final ProductRepository productRepository;
+    private final ClientService clientService;
 
     @Transactional(readOnly = true)
     public SaleItemResponse scanProductForSale(String barcode) {
@@ -57,6 +55,10 @@ public class SaleCheckoutService {
                 .stream()
                 .filter(Product::getIsActive)
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
+
+        ClientResponse clientResponse = (request.clientCode() != null && !request.clientCode().isBlank())
+                ? clientService.getClientByCode(request.clientCode())
+                : null;
 
         List<SaleItemResponse> calculatedItems = new ArrayList<>();
         long totalAmount = 0L;
@@ -92,6 +94,6 @@ public class SaleCheckoutService {
             ));
         }
 
-        return new SaleCalculationResponse(calculatedItems, totalAmount);
+        return new SaleCalculationResponse(calculatedItems, totalAmount, clientResponse);
     }
 }

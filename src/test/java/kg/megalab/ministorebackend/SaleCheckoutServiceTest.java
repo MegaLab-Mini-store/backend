@@ -1,13 +1,12 @@
 package kg.megalab.ministorebackend;
 
-import kg.megalab.ministorebackend.dto.SaleCalculationResponse;
-import kg.megalab.ministorebackend.dto.SaleCheckoutRequest;
-import kg.megalab.ministorebackend.dto.SaleItemRequest;
-import kg.megalab.ministorebackend.dto.SaleItemResponse;
+import kg.megalab.ministorebackend.dto.*;
 import kg.megalab.ministorebackend.entity.Product;
+import kg.megalab.ministorebackend.exception.ClientNotFoundException;
 import kg.megalab.ministorebackend.exception.InsufficientStockException;
 import kg.megalab.ministorebackend.exception.ResourceNotFoundException;
 import kg.megalab.ministorebackend.repository.ProductRepository;
+import kg.megalab.ministorebackend.service.ClientService;
 import kg.megalab.ministorebackend.service.SaleCheckoutService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,18 +16,22 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class SaleCheckoutServiceTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private ClientService clientService;
 
     @InjectMocks
     private SaleCheckoutService saleCheckoutService;
@@ -41,7 +44,7 @@ class SaleCheckoutServiceTest {
     }
 
     @Test
-    @DisplayName("Успешное сканирование товара возвращает название, цену, кол-во 1 и сумму")
+    @DisplayName("Успешное сканирование товара возвращает название, цену, кол-во 1 и сумму (не затрагивая сервис клиентов)")
     void scanProductForSale_Success() {
         Product cola = createTestProduct(101L, "470000000001", "Кола", 5500L, 20);
 
@@ -56,6 +59,7 @@ class SaleCheckoutServiceTest {
         assertEquals(1, response.quantity());
         assertEquals(5500L, response.subtotal());
         assertEquals(20, response.availableStock());
+        verifyNoInteractions(clientService);
     }
 
     @Test
@@ -86,11 +90,14 @@ class SaleCheckoutServiceTest {
         Product cola = createTestProduct(101L, "470000000001", "Кола", 5500L, 20);
         Product snickers = createTestProduct(102L, "470000000002", "Сникерс", 4500L, 15);
 
-        SaleCheckoutRequest request = new SaleCheckoutRequest(List.of(
-                new SaleItemRequest(101L, 1),
-                new SaleItemRequest(102L, 1),
-                new SaleItemRequest(101L, 2)
-        ));
+        SaleCheckoutRequest request = new SaleCheckoutRequest(
+                List.of(
+                        new SaleItemRequest(101L, 1),
+                        new SaleItemRequest(102L, 1),
+                        new SaleItemRequest(101L, 2)
+                ),
+                null
+        );
 
         when(productRepository.findAllById(Set.of(101L, 102L)))
                 .thenReturn(List.of(cola, snickers));
@@ -103,6 +110,8 @@ class SaleCheckoutServiceTest {
         assertEquals(1, response.items().get(1).quantity());
         assertEquals(4500L, response.items().get(1).subtotal());
         assertEquals(21000L, response.totalAmount());
+        assertNull(response.client());
+        verifyNoInteractions(clientService);
     }
 
     @Test
@@ -110,9 +119,10 @@ class SaleCheckoutServiceTest {
     void calculateAndValidateReceipt_InsufficientStock_ThrowsException() {
         Product chips = createTestProduct(103L, "470000000003", "Чипсы", 9500L, 2);
 
-        SaleCheckoutRequest request = new SaleCheckoutRequest(List.of(
-                new SaleItemRequest(103L, 3)
-        ));
+        SaleCheckoutRequest request = new SaleCheckoutRequest(
+                List.of(new SaleItemRequest(103L, 3)),
+                null
+        );
 
         when(productRepository.findAllById(Set.of(103L)))
                 .thenReturn(List.of(chips));
@@ -123,5 +133,78 @@ class SaleCheckoutServiceTest {
         );
 
         assertTrue(ex.getMessage().contains("Чипсы"));
+    }
+
+    @Test
+    @DisplayName("При корректном QR-коде клиент связывается с текущей продажей")
+    void calculateAndValidateReceipt_WithValidClientQr_LinksClient() {
+        Product cola = createTestProduct(101L, "470000000001", "Кола", 5500L, 20);
+
+        ClientResponse mockClient = new ClientResponse(
+                10L,
+                "CL-1001",
+                "Джон",
+                "+996555123456",
+                null,
+                new LoyaltyLevelResponse(1L, "Серебряный", 100),
+                2500L,
+                0L,
+                OffsetDateTime.now(),
+                OffsetDateTime.now(),
+                true
+        );
+
+        SaleCheckoutRequest request = new SaleCheckoutRequest(
+                List.of(new SaleItemRequest(101L, 2)),
+                "CL-1001"
+        );
+
+        when(productRepository.findAllById(Set.of(101L)))
+                .thenReturn(List.of(cola));
+        when(clientService.getClientByCode("CL-1001"))
+                .thenReturn(mockClient);
+
+        SaleCalculationResponse response = saleCheckoutService.calculateAndValidateReceipt(request);
+
+        assertEquals(11000L, response.totalAmount());
+        assertNotNull(response.client());
+        assertEquals(10L, response.client().id());
+        assertEquals("CL-1001", response.client().clientCode());
+        assertEquals("Джон", response.client().name());
+        assertEquals(2500L, response.client().bonusBalance());
+        verify(clientService).getClientByCode("CL-1001");
+    }
+
+    @Test
+    @DisplayName("При недействительном QR система сообщает об ошибке и позволяет продолжить продажу без привязки клиента")
+    void calculateAndValidateReceipt_InvalidQrThenContinueWithoutClient_Success() {
+        Product cola = createTestProduct(101L, "470000000001", "Кола", 5500L, 20);
+
+        when(productRepository.findAllById(Set.of(101L)))
+                .thenReturn(List.of(cola));
+        when(clientService.getClientByCode("INVALID-QR"))
+                .thenThrow(new ClientNotFoundException("INVALID-QR"));
+
+        // 1. Попытка с недействительным QR -> выбрасывает ClientNotFoundException
+        SaleCheckoutRequest requestWithInvalidQr = new SaleCheckoutRequest(
+                List.of(new SaleItemRequest(101L, 2)),
+                "INVALID-QR"
+        );
+
+        assertThrows(
+                ClientNotFoundException.class,
+                () -> saleCheckoutService.calculateAndValidateReceipt(requestWithInvalidQr)
+        );
+
+        // 2. Продолжение той же продажи без привязки клиента (пустой/null clientCode)
+        SaleCheckoutRequest requestWithoutClient = new SaleCheckoutRequest(
+                List.of(new SaleItemRequest(101L, 2)),
+                "   "
+        );
+
+        SaleCalculationResponse response = saleCheckoutService.calculateAndValidateReceipt(requestWithoutClient);
+
+        assertEquals(11000L, response.totalAmount());
+        assertNull(response.client());
     }
 }
