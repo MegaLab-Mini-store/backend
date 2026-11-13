@@ -1,111 +1,94 @@
+
 package kg.megalab.ministorebackend.entity;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
+import jakarta.persistence.*;
+import jakarta.validation.constraints.PositiveOrZero;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.OffsetDateTime;
+
 @Entity
-@Table(name="products")
+@Table(name = "products")
+@Getter
+@Setter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Product {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Setter(AccessLevel.NONE)
     private Long id;
 
-    @Column(name="barcode", unique = true)
+    @Column(name = "barcode", unique = true)
     private String barcode;
-    @Column(name = "name",nullable = false)
+
+    @Column(name = "name", nullable = false)
     private String name;
+
+    @PositiveOrZero
     @Column(name = "purchase_price", nullable = false)
     private Long purchasePrice;
+
+    @PositiveOrZero
     @Column(name = "sale_price", nullable = false)
     private Long salePrice;
+
     @Column(name = "stock_quantity", nullable = false)
-    private Integer stockQuantity;
+    @Setter(AccessLevel.NONE)
+    private Integer stockQuantity = 0;
+
     @Column(name = "is_active", nullable = false)
     @JsonProperty("isActive")
-    private Boolean isActive;
+    private Boolean isActive = true;
+
     @Column(name = "updated_at", nullable = false)
+    @Setter(AccessLevel.NONE)
     private OffsetDateTime updatedAt;
 
-    public Product() {
+    public static Product create(
+            String barcode,
+            String name,
+            Long purchasePrice,
+            Long salePrice
+    ) {
+        Product product = new Product();
+        product.barcode = barcode;
+        product.name = name;
+        product.purchasePrice = purchasePrice;
+        product.salePrice = salePrice;
+        return product;
     }
 
-    public Long getId() {
-        return id;
+    public void increaseStock(int quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException(
+                    "Количество для добавления должно быть больше 0"
+            );
+        }
+        this.stockQuantity += quantity;
     }
 
-    public void setId(Long id) {
-        this.id = id;
+    public void decreaseStock(int quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException(
+                    "Количество для списания должно быть больше 0"
+            );
+        }
+        if (this.stockQuantity < quantity) {
+            throw new IllegalStateException(
+                    "Недостаточно товара на складе"
+            );
+        }
+        this.stockQuantity -= quantity;
     }
 
-    public String getBarcode() {
-        return barcode;
-    }
-
-    public void setBarcode(String barcode) {
-        this.barcode = barcode;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public Long getPurchasePrice() {
-        return purchasePrice;
-    }
-
-    public void setPurchasePrice(Long purchasePrice) {
-        this.purchasePrice = purchasePrice;
-    }
-
-    public Long getSalePrice() {
-        return salePrice;
-    }
-
-    public void setSalePrice(Long salePrice) {
-        this.salePrice = salePrice;
-    }
-
-    public Integer getStockQuantity() {
-        return stockQuantity;
-    }
-
-    public void setStockQuantity(Integer stockQuantity) {
-        this.stockQuantity = stockQuantity;
-    }
-
-    @JsonProperty("isActive")
-    public Boolean getIsActive() {
-        return isActive;
-    }
-
-    @JsonProperty("isActive")
-    public void setIsActive(Boolean isActive) {
-        this.isActive = isActive;
-    }
-
-    public OffsetDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(OffsetDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
     @PrePersist
     @PreUpdate
-    public void updateTimestamp() {
+    void preUpdate() {
         this.updatedAt = OffsetDateTime.now();
     }
 }
-
