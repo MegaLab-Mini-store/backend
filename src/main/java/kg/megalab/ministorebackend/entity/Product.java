@@ -1,5 +1,7 @@
+
 package kg.megalab.ministorebackend.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.AccessLevel;
@@ -40,13 +42,19 @@ public class Product {
     private Integer stockQuantity = 0;
 
     @Column(name = "is_active", nullable = false)
+    @JsonProperty("isActive")
     private Boolean isActive = true;
 
     @Column(name = "updated_at", nullable = false)
     @Setter(AccessLevel.NONE)
     private OffsetDateTime updatedAt;
 
-    public static Product create(String barcode, String name, Long purchasePrice, Long salePrice) {
+    public static Product create(
+            String barcode,
+            String name,
+            Long purchasePrice,
+            Long salePrice
+    ) {
         Product product = new Product();
         product.barcode = barcode;
         product.name = name;
@@ -57,17 +65,23 @@ public class Product {
 
     public void increaseStock(int quantity) {
         if (quantity <= 0) {
-            throw new IllegalArgumentException("Количество для добавления должно быть больше 0");
+            throw new IllegalArgumentException(
+                    "Количество для добавления должно быть больше 0"
+            );
         }
         this.stockQuantity += quantity;
     }
 
     public void decreaseStock(int quantity) {
         if (quantity <= 0) {
-            throw new IllegalArgumentException("Количество для списания должно быть больше 0");
+            throw new IllegalArgumentException(
+                    "Количество для списания должно быть больше 0"
+            );
         }
         if (this.stockQuantity < quantity) {
-            throw new IllegalStateException("Недостаточно товара на складе");
+            throw new IllegalStateException(
+                    "Недостаточно товара на складе"
+            );
         }
         this.stockQuantity -= quantity;
     }

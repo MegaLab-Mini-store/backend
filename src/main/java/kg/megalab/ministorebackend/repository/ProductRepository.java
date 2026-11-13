@@ -1,3 +1,4 @@
+
 package kg.megalab.ministorebackend.repository;
 
 import kg.megalab.ministorebackend.entity.Product;
@@ -8,6 +9,8 @@ import java.util.Optional;
 
 @Repository
 public interface ProductRepository extends JpaRepository<Product, Long> {
+
+    Optional<Product> findByBarcode(String barcode);
 
     Optional<Product> findByBarcodeAndIsActiveTrue(String barcode);
 }
