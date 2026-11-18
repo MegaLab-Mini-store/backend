@@ -46,6 +46,15 @@ public class SaleItem {
         return item;
     }
 
+    public static SaleItem of(Product product, int quantity, long unitPrice) {
+        SaleItem item = new SaleItem();
+        item.product = product;
+        item.quantity = quantity;
+        item.unitPrice = unitPrice;
+        item.subtotal = Math.multiplyExact(unitPrice, quantity);
+        return item;
+    }
+
     void setSale(Sale sale) {
         this.sale = sale;
     }

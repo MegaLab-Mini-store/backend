@@ -1,21 +1,21 @@
 package kg.megalab.ministorebackend.service;
 
+import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import kg.megalab.ministorebackend.dto.SaleItemRequest;
-import kg.megalab.ministorebackend.dto.SaleRequest;
-import kg.megalab.ministorebackend.dto.SaleResult;
-import kg.megalab.ministorebackend.entity.InventoryMovement;
-import kg.megalab.ministorebackend.entity.MovementType;
+import kg.megalab.ministorebackend.dto.CompleteSaleItemRequest;
+import kg.megalab.ministorebackend.dto.CompleteSaleRequest;
+import kg.megalab.ministorebackend.dto.CompleteSaleResult;
+import kg.megalab.ministorebackend.dto.OperationType;
 import kg.megalab.ministorebackend.entity.PaymentMethod;
 import kg.megalab.ministorebackend.entity.Product;
 import kg.megalab.ministorebackend.entity.Sale;
 import kg.megalab.ministorebackend.entity.SaleItem;
 import kg.megalab.ministorebackend.exception.SaleRejectedException;
-import kg.megalab.ministorebackend.repository.InventoryMovementRepository;
 import kg.megalab.ministorebackend.repository.ProductRepository;
 import kg.megalab.ministorebackend.repository.SaleRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,60 +28,43 @@ public class SaleService {
 
     private final SaleRepository saleRepository;
     private final ProductRepository productRepository;
-    private final InventoryMovementRepository movementRepository;
+    private final StockService stockService;
+    private final Clock clock;
 
     @Transactional
-    public SaleResult completeSale(Long userId, SaleRequest request) {
+    public CompleteSaleResult completeSale(Long userId, CompleteSaleRequest request) {
         if (request.paymentMethod() == PaymentMethod.DEBT) {
             throw new SaleRejectedException("DEBT_CLIENT_REQUIRED",
                     "Продажа в долг возможна только с клиентом");
         }
 
         Map<Long, Product> products = loadProducts(request);
-        OffsetDateTime now = OffsetDateTime.now();
 
-        Sale sale = new Sale();
-        sale.setUserId(userId);
+        Sale sale = Sale.create(userId, request.paymentMethod());
         sale.setClientUuid(request.clientUuid());
         sale.setReplacesClientUuid(request.replacesClientUuid());
-        sale.setPaymentMethod(request.paymentMethod());
-        sale.setOccurredAt(request.occurredAt() != null ? request.occurredAt() : now);
+        sale.setOccurredAt(request.occurredAt() != null ? request.occurredAt() : OffsetDateTime.now(clock));
 
-        long total = 0;
-        for (SaleItemRequest itemRequest : request.items()) {
-            long subtotal = Math.multiplyExact(itemRequest.unitPrice(), itemRequest.quantity());
-            total = Math.addExact(total, subtotal);
-
-            SaleItem item = new SaleItem();
-            item.setSale(sale);
-            item.setProduct(products.get(itemRequest.productId()));
-            item.setQuantity(itemRequest.quantity());
-            item.setUnitPrice(itemRequest.unitPrice());
-            item.setSubtotal(subtotal);
-            sale.getItems().add(item);
+        for (CompleteSaleItemRequest item : request.items()) {
+            sale.addItem(SaleItem.of(products.get(item.productId()), item.quantity(), item.unitPrice()));
         }
-        sale.setTotalAmount(total);
-        sale.setPaidAmount(total);
+        sale.setPaidAmount(sale.getTotalAmount());
 
-        Sale saved = saleRepository.save(sale);
+        Sale saved = saleRepository.saveAndFlush(sale);
 
-        for (SaleItemRequest itemRequest : request.items()) {
-            productRepository.decreaseStock(itemRequest.productId(), itemRequest.quantity(), now);
-
-            InventoryMovement movement = new InventoryMovement();
-            movement.setProduct(products.get(itemRequest.productId()));
-            movement.setOperationType(MovementType.SALE);
-            movement.setQuantityChange(-itemRequest.quantity());
-            movement.setReferenceId(saved.getId());
-            movementRepository.save(movement);
+        Map<Long, Integer> quantityByProduct = new LinkedHashMap<>();
+        for (CompleteSaleItemRequest item : request.items()) {
+            quantityByProduct.merge(item.productId(), item.quantity(), Integer::sum);
         }
+        quantityByProduct.forEach((productId, quantity) ->
+                stockService.apply(productId, -quantity, OperationType.SALE, saved.getId(), "Продажа"));
 
-        return new SaleResult(saved.getId(), saved.getTotalAmount(), saved.getEarnedBonuses());
+        return new CompleteSaleResult(saved.getId(), saved.getTotalAmount(), saved.getEarnedBonuses());
     }
 
-    private Map<Long, Product> loadProducts(SaleRequest request) {
+    private Map<Long, Product> loadProducts(CompleteSaleRequest request) {
         Set<Long> ids = request.items().stream()
-                .map(SaleItemRequest::productId)
+                .map(CompleteSaleItemRequest::productId)
                 .collect(Collectors.toSet());
 
         Map<Long, Product> products = productRepository.findAllById(ids).stream()

@@ -8,10 +8,10 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import kg.megalab.ministorebackend.entity.PaymentMethod;
 
-public record SaleRequest(
+public record CompleteSaleRequest(
         @NotNull @Size(min = 8, max = 64) String clientUuid,
         @NotNull PaymentMethod paymentMethod,
         OffsetDateTime occurredAt,
         @Size(min = 8, max = 64) String replacesClientUuid,
-        @NotEmpty List<@Valid SaleItemRequest> items
+        @NotEmpty List<@Valid CompleteSaleItemRequest> items
 ) {}
