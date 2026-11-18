@@ -12,7 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/sales")
+@RequestMapping("/api/v1/sales")
 @RequiredArgsConstructor
 @Tag(name = "Оформление продажи", description = "Сканирование товаров в чек, пересчет сумм и проверка остатков")
 public class SaleCheckoutController {
