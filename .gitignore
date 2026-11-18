@@ -35,3 +35,4 @@ build/
 ### Local ###
 .env
 compose.override.yaml
+.m2/

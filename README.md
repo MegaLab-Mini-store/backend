@@ -66,7 +66,7 @@ docker compose down -v
 | Swagger UI | <http://localhost:8080/swagger-ui.html> |
 | OpenAPI JSON | <http://localhost:8080/v3/api-docs> |
 | Health-check | <http://localhost:8080/actuator/health> |
-| PostgreSQL | `localhost:5432` |
+| PostgreSQL | `postgres:5432` внутри Docker-сети; порт наружу не публикуется |
 
 ## API
 
@@ -88,3 +88,49 @@ GET /actuator/health
 
 Интерактивная документация реализованных endpoint'ов автоматически формируется
 в формате OpenAPI и доступна в Swagger UI после запуска приложения.
+
+### Вход кассира (US-05)
+
+Для первого запуска задайте `MINISTORE_OWNER_USERNAME` и `MINISTORE_OWNER_PASSWORD`
+(минимум 12 символов) в окружении backend или в локальном `.env` для Docker Compose.
+Пользователь создаётся один раз с хешем BCrypt; повторный запуск не меняет его пароль.
+Не добавляйте `.env` в Git. Если обе переменные не заданы, учётная запись не создаётся.
+
+`POST /api/auth/login` принимает JSON `{"username":"...","password":"..."}` и
+возвращает `token`, `expiresAt`, `username`, `role`. Ошибка учётных данных даёт `401`.
+Передавайте токен в `Authorization: Bearer <token>` для `GET /api/auth/me` и
+`POST /api/auth/logout`. Сессия действует 30 дней, хранится в БД как SHA-256 хеш
+и может быть отозвана через logout. Пароль и токен в открытом виде в БД не сохраняются.
+
+### Приёмка поставки (US-11)
+
+После сканирования штрихкода приложение получает ID товара через
+`GET /api/products/barcode/{barcode}`. Для сохранения поставки отправьте один запрос
+с авторизацией кассира:
+
+```http
+POST /api/deliveries
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "supplierInfo": "Поставщик",
+  "occurredAt": "2026-11-16T10:15:00+06:00",
+  "items": [
+    {"productId": 1, "quantity": 3, "purchasePrice": 120},
+    {"productId": 2, "quantity": 2, "purchasePrice": 200}
+  ]
+}
+```
+
+`supplierInfo` и `occurredAt` необязательны. Если дата не передана, используется
+время сервера. Закупочная цена передаётся в тех же единицах, что и цена товара
+в каталоге. Успешный ответ — `201 Created` с ID поставки, суммой, датами,
+позициями и остатком после каждой позиции. Сохранённую поставку можно получить
+через `GET /api/deliveries/{id}`. Текущий остаток доступен через
+`GET /api/v1/products/{productId}/stock` и в каталоге товаров.
+
+Товар должен быть активным; ID в одном запросе не должны повторяться.
+Количество — положительное целое число, закупочная цена — неотрицательное.
+Поставка, позиции, движения и обновление остатков сохраняются одной транзакцией:
+при ошибке все изменения откатываются.
