@@ -11,4 +11,13 @@ public class ClientNotFoundException extends AppException {
                 String.format("Клиент с кодом '%s' не найден или неактивен", clientCode)
         );
     }
+
+    public ClientNotFoundException(Long clientId) {
+        super(
+                HttpStatus.NOT_FOUND,
+                "Клиент не найден",
+                "CLIENT_NOT_FOUND",
+                String.format("Клиент с id '%d' не найден", clientId)
+        );
+    }
 }
