@@ -38,17 +38,20 @@ public class StockService {
         }
         OffsetDateTime now = OffsetDateTime.now(clock);
 
+        boolean allowNegative = type == OperationType.SALE;
+
         Optional<Integer> after = jdbc.sql("""
                 UPDATE products
                    SET stock_quantity = stock_quantity + :delta,
                        updated_at = :now
                  WHERE id = :id
-                   AND stock_quantity + :delta >= 0
+                   AND (:allowNegative OR stock_quantity + :delta >= 0)
              RETURNING stock_quantity
                 """)
                 .param("delta", delta)
                 .param("now", now)
                 .param("id", productId)
+                .param("allowNegative", allowNegative)
                 .query(Integer.class)
                 .optional();
 

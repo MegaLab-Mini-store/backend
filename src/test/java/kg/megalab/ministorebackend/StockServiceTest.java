@@ -65,10 +65,17 @@ class StockServiceTest {
     }
 
     @Test
-    void sale_more_than_stock_is_rejected_and_stock_unchanged() {
+    void sale_more_than_stock_goes_negative() {
+        tx.executeWithoutResult(s -> stock.apply(productId, -6, OperationType.SALE, 2L, "Чек"));
+        assertEquals(-1, stockOf());
+        assertEquals(1, movementsCount());
+    }
+
+    @Test
+    void correction_below_zero_is_rejected_and_stock_unchanged() {
         assertThrows(InsufficientStockException.class,
                 () -> tx.executeWithoutResult(s ->
-                        stock.apply(productId, -6, OperationType.SALE, 2L, "Чек")));
+                        stock.apply(productId, -6, OperationType.CORRECTION, 2L, "Недостача")));
         assertEquals(5, stockOf());
         assertEquals(0, movementsCount());
     }
@@ -99,7 +106,7 @@ class StockServiceTest {
     }
 
     @Test
-    void concurrent_sales_never_go_below_zero() throws Exception {
+    void concurrent_sales_do_not_lose_updates() throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(10);
         CountDownLatch start = new CountDownLatch(1);
         AtomicInteger ok = new AtomicInteger();
@@ -126,9 +133,9 @@ class StockServiceTest {
         }
         pool.shutdown();
 
-        assertEquals(5, ok.get());
-        assertEquals(5, rejected.get());
-        assertEquals(0, stockOf());
-        assertEquals(5, movementsCount());
+        assertEquals(10, ok.get());
+        assertEquals(0, rejected.get());
+        assertEquals(-5, stockOf());
+        assertEquals(10, movementsCount());
     }
 }
