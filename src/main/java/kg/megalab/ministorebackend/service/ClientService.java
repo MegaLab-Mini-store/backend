@@ -1,20 +1,24 @@
 package kg.megalab.ministorebackend.service;
 
-import kg.megalab.ministorebackend.dto.ClientResponse;
-import kg.megalab.ministorebackend.dto.CreateClientRequest;
-import kg.megalab.ministorebackend.dto.PageResponse;
+import kg.megalab.ministorebackend.dto.*;
 import kg.megalab.ministorebackend.entity.Client;
 import kg.megalab.ministorebackend.entity.LoyaltyLevel;
+import kg.megalab.ministorebackend.entity.Sale;
 import kg.megalab.ministorebackend.exception.ClientNotFoundException;
 import kg.megalab.ministorebackend.exception.ResourceNotFoundException;
 import kg.megalab.ministorebackend.repository.ClientRepository;
 import kg.megalab.ministorebackend.repository.LoyaltyLevelRepository;
+import kg.megalab.ministorebackend.repository.SaleRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +29,7 @@ public class ClientService {
     private static final int CODE_LENGTH = 6;
 
     private final ClientRepository clientRepository;
+    private final SaleRepository saleRepository;
     private final LoyaltyLevelRepository loyaltyLevelRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -77,11 +82,30 @@ public class ClientService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<Object> getClientPurchases(Long id, int limit, int offset) {
-        if (!clientRepository.existsByIdAndIsActiveTrue(id)) {
-            throw new ClientNotFoundException(id);
+    public PageResponse<ClientPurchaseResponse> getClientPurchases(Long id, int limit, int offset) {
+        Client client = findActiveClientById(id);
+
+        OffsetBasedPageRequest pageable = new OffsetBasedPageRequest(offset, limit);
+        Page<Sale> salesPage = saleRepository.findAllByClientIdOrderByOccurredAtDescCreatedAtDesc(id, pageable);
+
+        List<Sale> pageContent = salesPage.getContent();
+        if (pageContent.isEmpty()) {
+            return new PageResponse<>(List.of(), salesPage.getTotalElements(), limit, offset);
         }
-        return PageResponse.empty(limit, offset);
+
+        List<Long> saleIds = pageContent.stream()
+                .map(Sale::getId)
+                .toList();
+
+        Map<Long, Sale> salesWithItemsById = saleRepository.findAllWithItemsByIdIn(saleIds).stream()
+                .collect(Collectors.toMap(Sale::getId, Function.identity()));
+
+        List<ClientPurchaseResponse> items = saleIds.stream()
+                .map(salesWithItemsById::get)
+                .map(sale -> ClientPurchaseResponse.from(sale, client))
+                .toList();
+
+        return new PageResponse<>(items, salesPage.getTotalElements(), limit, offset);
     }
 
 
@@ -109,5 +133,11 @@ public class ClientService {
         } while (clientRepository.existsByClientCode(code));
 
         return code;
+    }
+
+    private Client findActiveClientById(Long id) {
+        return clientRepository.findWithLevelById(id)
+                .filter(Client::getIsActive)
+                .orElseThrow(() -> new ClientNotFoundException(id));
     }
 }

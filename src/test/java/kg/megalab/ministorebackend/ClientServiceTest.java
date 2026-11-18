@@ -1,14 +1,12 @@
 package kg.megalab.ministorebackend;
 
-import kg.megalab.ministorebackend.dto.ClientResponse;
-import kg.megalab.ministorebackend.dto.CreateClientRequest;
-import kg.megalab.ministorebackend.dto.PageResponse;
-import kg.megalab.ministorebackend.entity.Client;
-import kg.megalab.ministorebackend.entity.LoyaltyLevel;
+import kg.megalab.ministorebackend.dto.*;
+import kg.megalab.ministorebackend.entity.*;
 import kg.megalab.ministorebackend.exception.ClientNotFoundException;
 import kg.megalab.ministorebackend.exception.ResourceNotFoundException;
 import kg.megalab.ministorebackend.repository.ClientRepository;
 import kg.megalab.ministorebackend.repository.LoyaltyLevelRepository;
+import kg.megalab.ministorebackend.repository.SaleRepository;
 import kg.megalab.ministorebackend.service.ClientService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,6 +14,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -38,6 +39,9 @@ class ClientServiceTest {
 
     @Mock
     private LoyaltyLevelRepository loyaltyLevelRepository;
+
+    @Mock
+    private SaleRepository saleRepository;
 
     @InjectMocks
     private ClientService clientService;
@@ -220,17 +224,88 @@ class ClientServiceTest {
     }
 
     @Test
-    @DisplayName("Возвращает пустую страницу истории покупок для существующего клиента и 404 для несуществующего")
-    void getClientPurchases_ReturnsEmptyPageOrThrowsNotFound() {
-        when(clientRepository.existsByIdAndIsActiveTrue(1L)).thenReturn(true);
-        when(clientRepository.existsByIdAndIsActiveTrue(404L)).thenReturn(false);
+    @DisplayName("Возвращает историю покупок клиента с позициями чека")
+    void getClientPurchases_WhenSalesExist_ReturnsMappedPage() {
+        LoyaltyLevel level = LoyaltyLevel.create("Базовый", 0);
+        ReflectionTestUtils.setField(level, "id", 1L);
 
-        PageResponse<Object> page = clientService.getClientPurchases(1L, 50, 0);
+        Client client = Client.create("CL-ABC123", "Сэм", "+996555001122", level);
+        ReflectionTestUtils.setField(client, "id", 5L);
+
+        Product cola = Product.create("470000000001", "Кола", 3000L, 5500L);
+        ReflectionTestUtils.setField(cola, "id", 101L);
+
+        Sale sale = Sale.create(1L, PaymentMethod.CASH);
+        ReflectionTestUtils.setField(sale, "id", 77L);
+        sale.setClientId(5L);
+        sale.setClientUuid("uuid-1234-5678");
+        sale.setPaidAmount(11000L);
+        SaleItem item = SaleItem.of(cola, 2, 5500L);
+        ReflectionTestUtils.setField(item, "id", 501L);
+        sale.addItem(item);
+
+        Page<Sale> salesPage = new PageImpl<>(
+                List.of(sale),
+                new OffsetBasedPageRequest(0, 50),
+                1L
+        );
+
+        when(clientRepository.findWithLevelById(5L))
+                .thenReturn(Optional.of(client));
+        when(saleRepository.findAllByClientIdOrderByOccurredAtDescCreatedAtDesc(eq(5L), any(Pageable.class)))
+                .thenReturn(salesPage);
+        when(saleRepository.findAllWithItemsByIdIn(List.of(77L)))
+                .thenReturn(List.of(sale));
+
+        PageResponse<ClientPurchaseResponse> response = clientService.getClientPurchases(5L, 50, 0);
+
+        assertEquals(1L, response.total());
+        assertEquals(50, response.limit());
+        assertEquals(0, response.offset());
+        assertEquals(1, response.items().size());
+
+        ClientPurchaseResponse purchase = response.items().getFirst();
+        assertEquals(77L, purchase.id());
+        assertEquals("uuid-1234-5678", purchase.clientUuid());
+        assertEquals("CL-ABC123", purchase.clientCode());
+        assertEquals("Сэм", purchase.clientName());
+        assertEquals(11000L, purchase.totalAmount());
+        assertEquals(PaymentMethod.CASH, purchase.paymentMethod());
+        assertEquals(1, purchase.items().size());
+        assertEquals("Кола", purchase.items().getFirst().productName());
+        assertEquals(2, purchase.items().getFirst().quantity());
+
+        verify(saleRepository).findAllWithItemsByIdIn(List.of(77L));
+    }
+
+    @Test
+    @DisplayName("Возвращает пустую страницу без лишнего запроса позиций, если у клиента нет покупок")
+    void getClientPurchases_WhenNoSales_ReturnsEmptyPageWithoutFetchingItems() {
+        LoyaltyLevel level = LoyaltyLevel.create("Базовый", 0);
+        Client client = Client.create("CL-EMPTY1", "Sam", null, level);
+        ReflectionTestUtils.setField(client, "id", 1L);
+
+        when(clientRepository.findWithLevelById(1L))
+                .thenReturn(Optional.of(client));
+        when(saleRepository.findAllByClientIdOrderByOccurredAtDescCreatedAtDesc(eq(1L), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        PageResponse<ClientPurchaseResponse> page = clientService.getClientPurchases(1L, 50, 0);
+
         assertTrue(page.items().isEmpty());
         assertEquals(0L, page.total());
         assertEquals(50, page.limit());
         assertEquals(0, page.offset());
+        verify(saleRepository, never()).findAllWithItemsByIdIn(anyList());
+    }
+
+    @Test
+    @DisplayName("Выбрасывает ClientNotFoundException (404) при запросе покупок несуществующего клиента")
+    void getClientPurchases_WhenClientNotFound_ThrowsClientNotFoundException() {
+        when(clientRepository.findWithLevelById(404L))
+                .thenReturn(Optional.empty());
 
         assertThrows(ClientNotFoundException.class, () -> clientService.getClientPurchases(404L, 50, 0));
+        verifyNoInteractions(saleRepository);
     }
 }

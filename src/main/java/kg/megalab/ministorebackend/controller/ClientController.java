@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import kg.megalab.ministorebackend.dto.ClientPurchaseResponse;
 import kg.megalab.ministorebackend.dto.ClientResponse;
 import kg.megalab.ministorebackend.dto.CreateClientRequest;
 import kg.megalab.ministorebackend.dto.PageResponse;
@@ -66,9 +67,9 @@ public class ClientController {
     @GetMapping("/{id}/purchases")
     @Operation(
             summary = "История покупок клиента",
-            description = "Возвращает историю покупок клиента (пустой пока что TODO: after us-15)"
+            description = "Возвращает историю покупок клиента"
     )
-    public ResponseEntity<PageResponse<Object>> getClientPurchases(
+    public ResponseEntity<PageResponse<ClientPurchaseResponse>> getClientPurchases(
             @PathVariable Long id,
             @RequestParam(defaultValue = "50") @Min(1) @Max(200) int limit,
             @RequestParam(defaultValue = "0") @Min(0) int offset
