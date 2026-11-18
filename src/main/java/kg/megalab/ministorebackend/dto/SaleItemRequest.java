@@ -1,11 +1,13 @@
 package kg.megalab.ministorebackend.dto;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.PositiveOrZero;
 
 public record SaleItemRequest(
-        @NotNull Long productId,
-        @NotNull @Positive Integer quantity,
-        @NotNull @PositiveOrZero Long unitPrice
+        @NotNull(message = "ID товара обязателен")
+        Long productId,
+
+        @NotNull(message = "Количество обязательно")
+        @Min(value = 1, message = "Количество товара должно быть не меньше 1")
+        Integer quantity
 ) {}
