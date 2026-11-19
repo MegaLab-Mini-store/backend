@@ -148,6 +148,49 @@ class SaleServiceTest {
         assertEquals(0, countSales("test-us15-0007"));
     }
 
+    @Test
+    void savesCashPaymentMethod() {
+        CompleteSaleResult result = saleService.completeSale(
+                userId,
+                request("test-us15-0017",
+                        item(breadId, 1, 5000L))
+        );
+
+        String paymentMethod = jdbc.sql(
+                        "SELECT payment_method FROM sales WHERE id = :id"
+                )
+                .param("id", result.saleId())
+                .query(String.class)
+                .single();
+
+        assertEquals("CASH", paymentMethod);
+    }
+
+    @Test
+    void savesCardPaymentMethod() {
+        CompleteSaleRequest saleRequest = new CompleteSaleRequest(
+                "test-us15-0018",
+                PaymentMethod.CARD,
+                null,
+                null,
+                List.of(item(breadId, 1, 5000L))
+        );
+
+        CompleteSaleResult result = saleService.completeSale(
+                userId,
+                saleRequest
+        );
+
+        String paymentMethod = jdbc.sql(
+                        "SELECT payment_method FROM sales WHERE id = :id"
+                )
+                .param("id", result.saleId())
+                .query(String.class)
+                .single();
+
+        assertEquals("CARD", paymentMethod);
+    }
+
     private CompleteSaleRequest request(String clientUuid, CompleteSaleItemRequest... items) {
         return new CompleteSaleRequest(clientUuid, PaymentMethod.CASH, null, null, List.of(items));
     }

@@ -139,6 +139,35 @@ class SyncServiceTest {
                 () -> syncService.push(userId, new SyncPushRequest(List.of())));
     }
 
+    @Test
+    void syncSaleSavesCardPaymentMethod() {
+        SyncOperationRequest operation = new SyncOperationRequest(
+                "sale",
+                "test-us03-0017",
+                Map.of(
+                        "payment_method", "card",
+                        "items", List.of(Map.of(
+                                "product_id", breadId,
+                                "quantity", 1,
+                                "unit_price", 5000L
+                        ))
+                )
+        );
+
+        SyncOperationResponse result = pushOne(operation);
+
+        assertEquals(SyncStatus.APPLIED, result.status());
+
+        String paymentMethod = jdbc.sql(
+                        "SELECT payment_method FROM sales WHERE client_uuid = :uuid"
+                )
+                .param("uuid", "test-us03-0017")
+                .query(String.class)
+                .single();
+
+        assertEquals("CARD", paymentMethod);
+    }
+
     private SyncOperationRequest sale(String clientUuid, int quantity, long unitPrice) {
         return new SyncOperationRequest("sale", clientUuid, Map.of(
                 "payment_method", "cash",
