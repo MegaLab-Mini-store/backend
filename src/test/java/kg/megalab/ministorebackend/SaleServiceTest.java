@@ -123,12 +123,11 @@ class SaleServiceTest {
         assertEquals(10, stock(breadId));
     }
 
-    // Критерий 5: время продажи с телефона сохраняется (по нему продажа попадает в день)
     @Test
     void savesOccurredAtFromPhone() {
         OffsetDateTime occurredAt = OffsetDateTime.of(2026, 11, 11, 10, 30, 0, 0, ZoneOffset.ofHours(6));
         CompleteSaleResult result = saleService.completeSale(userId, new CompleteSaleRequest(
-                "test-us15-0006", PaymentMethod.CASH, occurredAt, null,
+                "test-us15-0006", PaymentMethod.CASH, occurredAt, null, null,
                 List.of(item(breadId, 1, 5000L))));
 
         OffsetDateTime saved = jdbc.sql("SELECT occurred_at FROM sales WHERE id = :id")
@@ -141,7 +140,7 @@ class SaleServiceTest {
     void debtWithoutClientIsRejected() {
         SaleRejectedException error = assertThrows(SaleRejectedException.class,
                 () -> saleService.completeSale(userId, new CompleteSaleRequest(
-                        "test-us15-0007", PaymentMethod.DEBT, null, null,
+                        "test-us15-0007", PaymentMethod.DEBT, null, null, null,
                         List.of(item(breadId, 1, 5000L)))));
 
         assertEquals("DEBT_CLIENT_REQUIRED", error.getErrorCode());
@@ -173,6 +172,7 @@ class SaleServiceTest {
                 PaymentMethod.CARD,
                 null,
                 null,
+                null,
                 List.of(item(breadId, 1, 5000L))
         );
 
@@ -192,7 +192,7 @@ class SaleServiceTest {
     }
 
     private CompleteSaleRequest request(String clientUuid, CompleteSaleItemRequest... items) {
-        return new CompleteSaleRequest(clientUuid, PaymentMethod.CASH, null, null, List.of(items));
+        return new CompleteSaleRequest(clientUuid, PaymentMethod.CASH, null, null, null, List.of(items));
     }
 
     private CompleteSaleItemRequest item(Long productId, int quantity, long unitPrice) {

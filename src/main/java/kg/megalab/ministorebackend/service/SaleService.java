@@ -11,11 +11,13 @@ import kg.megalab.ministorebackend.dto.CompleteSaleItemRequest;
 import kg.megalab.ministorebackend.dto.CompleteSaleRequest;
 import kg.megalab.ministorebackend.dto.CompleteSaleResult;
 import kg.megalab.ministorebackend.dto.OperationType;
+import kg.megalab.ministorebackend.entity.Client; 
 import kg.megalab.ministorebackend.entity.PaymentMethod;
 import kg.megalab.ministorebackend.entity.Product;
 import kg.megalab.ministorebackend.entity.Sale;
 import kg.megalab.ministorebackend.entity.SaleItem;
 import kg.megalab.ministorebackend.exception.SaleRejectedException;
+import kg.megalab.ministorebackend.repository.ClientRepository; 
 import kg.megalab.ministorebackend.repository.ProductRepository;
 import kg.megalab.ministorebackend.repository.SaleRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ public class SaleService {
 
     private final SaleRepository saleRepository;
     private final ProductRepository productRepository;
+    private final ClientRepository clientRepository; 
     private final StockService stockService;
     private final Clock clock;
 
@@ -39,11 +42,15 @@ public class SaleService {
         }
 
         Map<Long, Product> products = loadProducts(request);
+        Client client = loadClient(request); 
 
         Sale sale = Sale.create(userId, request.paymentMethod());
         sale.setClientUuid(request.clientUuid());
         sale.setReplacesClientUuid(request.replacesClientUuid());
         sale.setOccurredAt(request.occurredAt() != null ? request.occurredAt() : OffsetDateTime.now(clock));
+        if (client != null) {                  
+            sale.setClientId(client.getId());  
+        }                                      
 
         for (CompleteSaleItemRequest item : request.items()) {
             sale.addItem(SaleItem.of(products.get(item.productId()), item.quantity(), item.unitPrice()));
@@ -76,5 +83,15 @@ public class SaleService {
             }
         }
         return products;
+    }
+
+  
+    private Client loadClient(CompleteSaleRequest request) {
+        if (request.clientCode() == null) {
+            return null;
+        }
+        return clientRepository.findByClientCodeAndIsActiveTrue(request.clientCode().trim())
+                .orElseThrow(() -> new SaleRejectedException("CLIENT_NOT_FOUND",
+                        "Клиент не найден: " + request.clientCode()));
     }
 }
