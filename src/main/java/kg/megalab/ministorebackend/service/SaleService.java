@@ -32,6 +32,7 @@ public class SaleService {
     private final ProductRepository productRepository;
     private final ClientRepository clientRepository; 
     private final StockService stockService;
+    private final BonusService bonusService;
     private final Clock clock;
 
     @Transactional
@@ -65,6 +66,10 @@ public class SaleService {
         }
         quantityByProduct.forEach((productId, quantity) ->
                 stockService.apply(productId, -quantity, OperationType.SALE, saved.getId(), "Продажа"));
+
+        if (client != null) {                                                  
+            saved.setEarnedBonuses(bonusService.accrueForSale(saved, client)); 
+        }
 
         return new CompleteSaleResult(saved.getId(), saved.getTotalAmount(), saved.getEarnedBonuses());
     }
