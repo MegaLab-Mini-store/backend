@@ -12,10 +12,9 @@ import kg.megalab.ministorebackend.dto.SyncOperationRequest;
 import kg.megalab.ministorebackend.dto.SyncOperationResponse;
 import kg.megalab.ministorebackend.dto.SyncPushRequest;
 import kg.megalab.ministorebackend.dto.SyncPushResponse;
-import kg.megalab.ministorebackend.entity.Sale;
-import kg.megalab.ministorebackend.entity.SyncOperation;
-import kg.megalab.ministorebackend.entity.SyncRecordStatus;
+import kg.megalab.ministorebackend.entity.*;
 import kg.megalab.ministorebackend.exception.SaleRejectedException;
+import kg.megalab.ministorebackend.repository.DebtRepository;
 import kg.megalab.ministorebackend.repository.SaleRepository;
 import kg.megalab.ministorebackend.repository.SyncOperationRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +33,7 @@ public class SyncService {
 
     private final SyncOperationRepository syncRepository;
     private final SaleRepository saleRepository;
+    private final DebtRepository debtRepository;
     private final SaleService saleService;
     private final SyncSalePayloadConverter saleConverter;
     private final PayloadHasher payloadHasher;
@@ -107,8 +107,11 @@ public class SyncService {
             }
             Sale sale = saleRepository.findByClientUuid(clientUuid)
                     .orElseThrow(() -> new IllegalStateException("Нет продажи для " + clientUuid));
+            Long debtId = sale.getPaymentMethod() == PaymentMethod.DEBT
+                    ? debtRepository.findBySaleId(sale.getId()).map(Debt::getId).orElse(null)
+                    : null;
             return SyncOperationResponse.duplicate(clientUuid,
-                    new CompleteSaleResult(sale.getId(), sale.getTotalAmount(), sale.getEarnedBonuses()));
+                    new CompleteSaleResult(sale.getId(), sale.getTotalAmount(), sale.getEarnedBonuses(), debtId));
         });
     }
 

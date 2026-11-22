@@ -11,10 +11,9 @@ import kg.megalab.ministorebackend.dto.CompleteSaleItemRequest;
 import kg.megalab.ministorebackend.dto.CompleteSaleRequest;
 import kg.megalab.ministorebackend.dto.CompleteSaleResult;
 import kg.megalab.ministorebackend.dto.OperationType;
-import kg.megalab.ministorebackend.entity.PaymentMethod;
-import kg.megalab.ministorebackend.entity.Product;
-import kg.megalab.ministorebackend.entity.Sale;
-import kg.megalab.ministorebackend.entity.SaleItem;
+import kg.megalab.ministorebackend.entity.*;
+import kg.megalab.ministorebackend.exception.ClientNotFoundException;
+import kg.megalab.ministorebackend.exception.InvalidDebtException;
 import kg.megalab.ministorebackend.exception.SaleRejectedException;
 import kg.megalab.ministorebackend.repository.ProductRepository;
 import kg.megalab.ministorebackend.repository.SaleRepository;
@@ -29,11 +28,15 @@ public class SaleService {
     private final SaleRepository saleRepository;
     private final ProductRepository productRepository;
     private final StockService stockService;
+    private final ClientService clientService;
+    private final DebtService debtService;
     private final Clock clock;
 
     @Transactional
     public CompleteSaleResult completeSale(Long userId, CompleteSaleRequest request) {
-        if (request.paymentMethod() == PaymentMethod.DEBT) {
+        Client client = resolveClient(request.clientCode());
+
+        if (request.paymentMethod() == PaymentMethod.DEBT && client == null) {
             throw new SaleRejectedException("DEBT_CLIENT_REQUIRED",
                     "Продажа в долг возможна только с клиентом");
         }
@@ -41,6 +44,7 @@ public class SaleService {
         Map<Long, Product> products = loadProducts(request);
 
         Sale sale = Sale.create(userId, request.paymentMethod());
+        sale.setClientId(client != null ? client.getId() : null);
         sale.setClientUuid(request.clientUuid());
         sale.setReplacesClientUuid(request.replacesClientUuid());
         sale.setOccurredAt(request.occurredAt() != null ? request.occurredAt() : OffsetDateTime.now(clock));
@@ -48,7 +52,12 @@ public class SaleService {
         for (CompleteSaleItemRequest item : request.items()) {
             sale.addItem(SaleItem.of(products.get(item.productId()), item.quantity(), item.unitPrice()));
         }
-        sale.setPaidAmount(sale.getTotalAmount());
+
+        if (request.paymentMethod() == PaymentMethod.DEBT) {
+            sale.setPaidAmount(0L);
+        } else {
+            sale.setPaidAmount(sale.getTotalAmount());
+        }
 
         Sale saved = saleRepository.saveAndFlush(sale);
 
@@ -59,7 +68,29 @@ public class SaleService {
         quantityByProduct.forEach((productId, quantity) ->
                 stockService.apply(productId, -quantity, OperationType.SALE, saved.getId(), "Продажа"));
 
-        return new CompleteSaleResult(saved.getId(), saved.getTotalAmount(), saved.getEarnedBonuses());
+        Long debtId = null;
+        if (request.paymentMethod() == PaymentMethod.DEBT) {
+            long debtAmount = saved.getTotalAmount() - saved.getBonusSpent();
+            try {
+                Debt debt = debtService.createDebtForSale(client, saved.getId(), debtAmount, request.debtReminderDate());
+                debtId = debt.getId();
+            } catch (InvalidDebtException e) {
+                throw new SaleRejectedException("VALIDATION_ERROR", e.getMessage());
+            }
+        }
+
+        return new CompleteSaleResult(saved.getId(), saved.getTotalAmount(), saved.getEarnedBonuses(), debtId);
+    }
+
+    private Client resolveClient(String clientCode) {
+        if (clientCode == null || clientCode.isBlank()) {
+            return null;
+        }
+        try {
+            return clientService.getActiveClientByCode(clientCode);
+        } catch (ClientNotFoundException e) {
+            throw new SaleRejectedException("CLIENT_NOT_FOUND", e.getMessage());
+        }
     }
 
     private Map<Long, Product> loadProducts(CompleteSaleRequest request) {

@@ -59,4 +59,6 @@ public interface DebtRepository extends JpaRepository<Debt, Long> {
     List<ClientDebtTotalProjection> sumOpenRemainingAmountByClientIds(@Param("clientIds") Collection<Long> clientIds);
 
     boolean existsBySaleId(Long saleId);
+
+    Optional<Debt> findBySaleId(Long saleId);
 }
