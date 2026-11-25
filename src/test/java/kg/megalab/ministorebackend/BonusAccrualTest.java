@@ -198,7 +198,7 @@ class BonusAccrualTest {
     }
 
     private CompleteSaleRequest saleWithClient(String clientUuid, String clientCode, int quantity, long unitPrice) {
-        return new CompleteSaleRequest(clientUuid, PaymentMethod.CASH, null, null, clientCode,
+        return new CompleteSaleRequest(clientUuid, PaymentMethod.CASH, null, null, clientCode, null, // US-27: null = debt_reminder_date
                 List.of(new CompleteSaleItemRequest(breadId, quantity, unitPrice)));
     }
 
