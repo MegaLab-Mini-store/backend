@@ -3,10 +3,11 @@ package kg.megalab.ministorebackend.repository;
 import kg.megalab.ministorebackend.entity.Client;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,4 +37,15 @@ public interface ClientRepository extends JpaRepository<Client, Long> {
     List<Client> searchActiveClients(@Param("search") String search);
 
     boolean existsByIdAndIsActiveTrue(Long id);
+
+    @Modifying
+    @Query("""
+        UPDATE Client c
+           SET c.bonusBalance = c.bonusBalance + :amount,
+               c.updatedAt = :now
+         WHERE c.id = :clientId
+        """)
+    void addBonuses(@Param("clientId") Long clientId,
+                    @Param("amount") Long amount,
+                    @Param("now") OffsetDateTime now);
 }

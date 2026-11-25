@@ -30,6 +30,7 @@ public class SaleService {
     private final StockService stockService;
     private final ClientService clientService;
     private final DebtService debtService;
+    private final BonusService bonusService; // US-27
     private final Clock clock;
 
     @Transactional
@@ -67,6 +68,10 @@ public class SaleService {
         }
         quantityByProduct.forEach((productId, quantity) ->
                 stockService.apply(productId, -quantity, OperationType.SALE, saved.getId(), "Продажа"));
+
+        if (client != null) {                                                  // US-27
+            saved.setEarnedBonuses(bonusService.accrueForSale(saved, client)); // US-27
+        }                                                                      // US-27
 
         Long debtId = null;
         if (request.paymentMethod() == PaymentMethod.DEBT) {
