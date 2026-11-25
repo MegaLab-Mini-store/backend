@@ -15,12 +15,12 @@ public record SyncOperationResponse(
 
     public static SyncOperationResponse applied(String clientUuid, CompleteSaleResult sale) {
         return new SyncOperationResponse(clientUuid, SyncStatus.APPLIED, sale.saleId(),
-                null, null, null, sale.totalAmount(), sale.earnedBonuses());
+                null, null, sale.debtId(), sale.totalAmount(), sale.earnedBonuses());
     }
 
     public static SyncOperationResponse duplicate(String clientUuid, CompleteSaleResult sale) {
         return new SyncOperationResponse(clientUuid, SyncStatus.DUPLICATE, sale.saleId(),
-                null, null, null, sale.totalAmount(), sale.earnedBonuses());
+                null, null, sale.debtId(), sale.totalAmount(), sale.earnedBonuses());
     }
 
     public static SyncOperationResponse rejected(String clientUuid, String errorCode, String message) {

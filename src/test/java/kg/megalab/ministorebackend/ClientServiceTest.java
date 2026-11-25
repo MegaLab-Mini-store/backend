@@ -5,6 +5,7 @@ import kg.megalab.ministorebackend.entity.*;
 import kg.megalab.ministorebackend.exception.ClientNotFoundException;
 import kg.megalab.ministorebackend.exception.ResourceNotFoundException;
 import kg.megalab.ministorebackend.repository.ClientRepository;
+import kg.megalab.ministorebackend.repository.DebtRepository;
 import kg.megalab.ministorebackend.repository.LoyaltyLevelRepository;
 import kg.megalab.ministorebackend.repository.SaleRepository;
 import kg.megalab.ministorebackend.service.ClientService;
@@ -23,8 +24,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hibernate.validator.internal.util.Contracts.assertNotNull;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,43 +42,11 @@ class ClientServiceTest {
     @Mock
     private SaleRepository saleRepository;
 
+    @Mock
+    private DebtRepository debtRepository;
+
     @InjectMocks
     private ClientService clientService;
-
-    @Test
-    @DisplayName("Находит активного клиента по QR-коду с обрезкой пробелов")
-    void getClientByCode_WhenQrValid_ReturnsClientResponse() {
-        LoyaltyLevel level = LoyaltyLevel.create("Серебряный", 100);
-        Client client = Client.create("CL-1001", "Джон", "+996555123456", level);
-        client.setBonusBalance(2500L);
-
-        when(clientRepository.findByClientCodeAndIsActiveTrue("CL-1001"))
-                .thenReturn(Optional.of(client));
-
-        ClientResponse response = clientService.getClientByCode("  CL-1001 \n");
-
-        assertThat(response.clientCode()).isEqualTo("CL-1001");
-        assertThat(response.name()).isEqualTo("Джон");
-        assertThat(response.bonusBalance()).isEqualTo(2500L);
-        assertThat(response.level().name()).isEqualTo("Серебряный");
-        assertThat(response.level().cashbackPercentage()).isEqualTo(100);
-        verify(clientRepository).findByClientCodeAndIsActiveTrue("CL-1001");
-    }
-
-    @Test
-    @DisplayName("Бросает ClientNotFoundException (404 CLIENT_NOT_FOUND), если QR недействителен")
-    void getClientByCode_WhenQrInvalid_ThrowsClientNotFoundException() {
-        when(clientRepository.findByClientCodeAndIsActiveTrue("INVALID-QR"))
-                .thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> clientService.getClientByCode("INVALID-QR"))
-                .isInstanceOf(ClientNotFoundException.class)
-                .satisfies(ex -> {
-                    ClientNotFoundException appEx = (ClientNotFoundException) ex;
-                    assertThat(appEx.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-                    assertThat(appEx.getBody().getProperties()).containsEntry("errorCode", "CLIENT_NOT_FOUND");
-                });
-    }
 
     @Test
     @DisplayName("Создаёт клиента с минимальными данными, базовым уровнем 0% и уникальным Client ID")
@@ -119,6 +86,7 @@ class ClientServiceTest {
 
         verify(loyaltyLevelRepository).save(any(LoyaltyLevel.class));
         verify(clientRepository).save(any(Client.class));
+        verifyNoInteractions(debtRepository);
     }
 
     @Test
@@ -131,7 +99,6 @@ class ClientServiceTest {
 
         when(loyaltyLevelRepository.findById(2L))
                 .thenReturn(Optional.of(silverLevel));
-        // Первая генерация совпала с существующим кодом, вторая — уникальна
         when(clientRepository.existsByClientCode(anyString()))
                 .thenReturn(true, false);
         when(clientRepository.save(any(Client.class))).thenAnswer(invocation -> {
@@ -163,8 +130,8 @@ class ClientServiceTest {
     }
 
     @Test
-    @DisplayName("Возвращает карточку активного клиента по внутреннему ID с бонусным балансом и статусом долга")
-    void getClientById_WhenActiveClientExists_ReturnsCard() {
+    @DisplayName("Возвращает карточку активного клиента по ID с бонусным балансом и актуальным долгом")
+    void getClientById_WhenActiveClientExists_ReturnsCardWithTotalDebt() {
         LoyaltyLevel level = LoyaltyLevel.create("Базовый", 0);
         ReflectionTestUtils.setField(level, "id", 1L);
 
@@ -174,13 +141,15 @@ class ClientServiceTest {
 
         when(clientRepository.findWithLevelById(5L))
                 .thenReturn(Optional.of(client));
+        when(debtRepository.sumOpenRemainingAmountByClientId(5L))
+                .thenReturn(12500L);
 
         ClientResponse response = clientService.getClientById(5L);
 
         assertEquals(5L, response.id());
         assertEquals("CL-ABC123", response.clientCode());
         assertEquals(1500L, response.bonusBalance());
-        assertEquals(0L, response.totalDebt());
+        assertEquals(12500L, response.totalDebt());
     }
 
     @Test
@@ -199,26 +168,43 @@ class ClientServiceTest {
         );
         assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
         assertEquals("CLIENT_NOT_FOUND", ex.getBody().getProperties().get("errorCode"));
+        verifyNoInteractions(debtRepository);
     }
 
     @Test
-    @DisplayName("Возвращает список клиентов с поддержкой поиска и без него")
-    void getClients_WithAndWithoutSearch_ReturnsList() {
+    @DisplayName("Возвращает список клиентов с поддержкой поиска и батч-подсчётом открытых долгов")
+    void getClients_WithAndWithoutSearch_ReturnsListWithDebts() {
         LoyaltyLevel level = LoyaltyLevel.create("Базовый", 0);
         Client client = Client.create("CL-111222", "Sam", null, level);
         ReflectionTestUtils.setField(client, "id", 1L);
+
+        DebtRepository.ClientDebtTotalProjection debtProjection = new DebtRepository.ClientDebtTotalProjection() {
+            @Override
+            public Long getClientId() {
+                return 1L;
+            }
+
+            @Override
+            public Long getTotalDebt() {
+                return 8000L;
+            }
+        };
 
         when(clientRepository.findAllByIsActiveTrueOrderByCreatedAtDesc())
                 .thenReturn(List.of(client));
         when(clientRepository.searchActiveClients("Sam"))
                 .thenReturn(List.of(client));
+        when(debtRepository.sumOpenRemainingAmountByClientIds(List.of(1L)))
+                .thenReturn(List.of(debtProjection));
 
         List<ClientResponse> all = clientService.getClients(null);
         List<ClientResponse> filtered = clientService.getClients("  Sam  ");
 
         assertEquals(1, all.size());
+        assertEquals(8000L, all.getFirst().totalDebt());
         assertEquals(1, filtered.size());
         assertEquals("Sam", filtered.getFirst().name());
+        assertEquals(8000L, filtered.getFirst().totalDebt());
         verify(clientRepository).findAllByIsActiveTrueOrderByCreatedAtDesc();
         verify(clientRepository).searchActiveClients("Sam");
     }
@@ -307,5 +293,43 @@ class ClientServiceTest {
 
         assertThrows(ClientNotFoundException.class, () -> clientService.getClientPurchases(404L, 50, 0));
         verifyNoInteractions(saleRepository);
+    }
+
+    @Test
+    @DisplayName("Находит активного клиента по QR-коду с обрезкой пробелов и актуальным долгом")
+    void getClientByCode_WhenQrValid_ReturnsClientResponse() {
+        LoyaltyLevel level = LoyaltyLevel.create("Серебряный", 100);
+        Client client = Client.create("CL-1001", "Азамат", "+996555123456", level);
+        ReflectionTestUtils.setField(client, "id", 7L);
+        client.setBonusBalance(2500L);
+
+        when(clientRepository.findByClientCodeAndIsActiveTrue("CL-1001"))
+                .thenReturn(Optional.of(client));
+        when(debtRepository.sumOpenRemainingAmountByClientId(7L))
+                .thenReturn(4500L);
+
+        ClientResponse response = clientService.getClientByCode("  CL-1001 \n");
+
+        assertEquals("CL-1001", response.clientCode());
+        assertEquals("Азамат", response.name());
+        assertEquals(2500L, response.bonusBalance());
+        assertEquals(4500L, response.totalDebt());
+        assertEquals("Серебряный", response.level().name());
+        assertEquals(100, response.level().cashbackPercentage());
+        verify(clientRepository).findByClientCodeAndIsActiveTrue("CL-1001");
+    }
+
+    @Test
+    @DisplayName("Бросает ClientNotFoundException (404 CLIENT_NOT_FOUND), если QR недействителен")
+    void getClientByCode_WhenQrInvalid_ThrowsClientNotFoundException() {
+        when(clientRepository.findByClientCodeAndIsActiveTrue("INVALID-QR"))
+                .thenReturn(Optional.empty());
+
+        ClientNotFoundException ex = assertThrows(
+                ClientNotFoundException.class,
+                () -> clientService.getClientByCode("INVALID-QR")
+        );
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+        assertEquals("CLIENT_NOT_FOUND", ex.getBody().getProperties().get("errorCode"));
     }
 }

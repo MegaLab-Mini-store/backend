@@ -5,18 +5,18 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import kg.megalab.ministorebackend.dto.ClientPurchaseResponse;
-import kg.megalab.ministorebackend.dto.ClientResponse;
-import kg.megalab.ministorebackend.dto.CreateClientRequest;
-import kg.megalab.ministorebackend.dto.PageResponse;
+import kg.megalab.ministorebackend.dto.*;
 import kg.megalab.ministorebackend.service.ClientService;
+import kg.megalab.ministorebackend.service.DebtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Validated
 @RestController
 @RequestMapping("/api/v1/clients")
 @RequiredArgsConstructor
@@ -24,6 +24,7 @@ import java.util.List;
 public class ClientController {
 
     private final ClientService clientService;
+    private final DebtService debtService;
 
     @GetMapping("/by-code/{code}")
     @Operation(
@@ -75,5 +76,18 @@ public class ClientController {
             @RequestParam(defaultValue = "0") @Min(0) int offset
     ) {
         return ResponseEntity.ok(clientService.getClientPurchases(id, limit, offset));
+    }
+
+    @GetMapping("/{id}/debts")
+    @Operation(
+            summary = "Долги клиента",
+            description = "Возвращает список долгов клиента (краткий формат без погашений и напоминаний)"
+    )
+    public ResponseEntity<PageResponse<DebtSummaryResponse>> getClientDebts(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) int limit,
+            @RequestParam(defaultValue = "0") @Min(0) int offset
+    ) {
+        return ResponseEntity.ok(debtService.getClientDebts(id, limit, offset));
     }
 }

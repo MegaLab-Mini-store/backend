@@ -7,6 +7,7 @@ import kg.megalab.ministorebackend.entity.Sale;
 import kg.megalab.ministorebackend.exception.ClientNotFoundException;
 import kg.megalab.ministorebackend.exception.ResourceNotFoundException;
 import kg.megalab.ministorebackend.repository.ClientRepository;
+import kg.megalab.ministorebackend.repository.DebtRepository;
 import kg.megalab.ministorebackend.repository.LoyaltyLevelRepository;
 import kg.megalab.ministorebackend.repository.SaleRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,12 +32,13 @@ public class ClientService {
     private final ClientRepository clientRepository;
     private final SaleRepository saleRepository;
     private final LoyaltyLevelRepository loyaltyLevelRepository;
+    private final DebtRepository debtRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional(readOnly = true)
     public ClientResponse getClientByCode(String clientCode) {
         Client client = getActiveClientByCode(clientCode);
-        Long totalDebt = 0L;
+        Long totalDebt = debtRepository.sumOpenRemainingAmountByClientId(client.getId());
         return ClientResponse.from(client, totalDebt);
     }
 
@@ -64,10 +66,9 @@ public class ClientService {
 
     @Transactional(readOnly = true)
     public ClientResponse getClientById(Long id) {
-        Client client = clientRepository.findWithLevelById(id)
-                .filter(Client::getIsActive)
-                .orElseThrow(() -> new ClientNotFoundException(id));
-        return ClientResponse.from(client, 0L);
+        Client client = findActiveClientById(id);
+        long totalDebt = debtRepository.sumOpenRemainingAmountByClientId(client.getId());
+        return ClientResponse.from(client, totalDebt);
     }
 
     @Transactional(readOnly = true)
@@ -76,8 +77,22 @@ public class ClientService {
                 ? clientRepository.findAllByIsActiveTrueOrderByCreatedAtDesc()
                 : clientRepository.searchActiveClients(search.trim());
 
+        if (clients.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> clientIds = clients.stream()
+                .map(Client::getId)
+                .toList();
+
+        Map<Long, Long> debtByClientId = debtRepository.sumOpenRemainingAmountByClientIds(clientIds).stream()
+                .collect(Collectors.toMap(
+                        DebtRepository.ClientDebtTotalProjection::getClientId,
+                        DebtRepository.ClientDebtTotalProjection::getTotalDebt
+                ));
+
         return clients.stream()
-                .map(client -> ClientResponse.from(client, 0L))
+                .map(client -> ClientResponse.from(client, debtByClientId.getOrDefault(client.getId(), 0L)))
                 .toList();
     }
 
@@ -108,6 +123,12 @@ public class ClientService {
         return new PageResponse<>(items, salesPage.getTotalElements(), limit, offset);
     }
 
+    public Client findActiveClientById(Long id) {
+        return clientRepository.findWithLevelById(id)
+                .filter(Client::getIsActive)
+                .orElseThrow(() -> new ClientNotFoundException(id));
+    }
+
 
     private LoyaltyLevel resolveLoyaltyLevel(Long loyaltyLevelId) {
         if (loyaltyLevelId != null) {
@@ -133,11 +154,5 @@ public class ClientService {
         } while (clientRepository.existsByClientCode(code));
 
         return code;
-    }
-
-    private Client findActiveClientById(Long id) {
-        return clientRepository.findWithLevelById(id)
-                .filter(Client::getIsActive)
-                .orElseThrow(() -> new ClientNotFoundException(id));
     }
 }
