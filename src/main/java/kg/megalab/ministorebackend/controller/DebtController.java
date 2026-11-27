@@ -15,6 +15,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import kg.megalab.ministorebackend.dto.DebtPaymentRequest;
+import kg.megalab.ministorebackend.dto.DebtPaymentResponse;
+import kg.megalab.ministorebackend.exception.InvalidDebtException;
+import jakarta.validation.Validator;
 
 @Validated
 @RestController
@@ -24,6 +28,7 @@ import org.springframework.web.bind.annotation.*;
 public class DebtController {
 
     private final DebtService debtService;
+    private final Validator validator;
 
     @GetMapping
     @Operation(
@@ -57,5 +62,54 @@ public class DebtController {
     )
     public ResponseEntity<DebtResponse> getDebtById(@PathVariable("debt_id") Long debtId) {
         return ResponseEntity.ok(debtService.getDebtById(debtId));
+    }
+    @PostMapping("/{debt_id}/payments")
+    @Operation(
+            summary = "Погашение долга",
+            description = "Фиксирует частичное или полное погашение задолженности"
+    )
+    public ResponseEntity<DebtPaymentResponse> payDebt(
+            @PathVariable("debt_id") Long debtId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String idempotencyKey,
+            @RequestBody DebtPaymentRequest request
+    ) {
+        var violations = validator.validate(request);
+
+        if (!violations.isEmpty()) {
+            throw new InvalidDebtException(
+                    violations.iterator().next().getMessage()
+            );
+        }
+
+        if (idempotencyKey != null) {
+            if (idempotencyKey.length() < 8 || idempotencyKey.length() > 64) {
+                throw new InvalidDebtException(
+                        "Idempotency-Key должен содержать от 8 до 64 символов"
+                );
+            }
+
+            if (request.clientUuid() != null
+                    && !idempotencyKey.equals(request.clientUuid())) {
+                throw new InvalidDebtException(
+                        "Idempotency-Key и client_uuid не совпадают"
+                );
+            }
+
+            request = new DebtPaymentRequest(
+                    request.amount(),
+                    request.paymentMethod(),
+                    idempotencyKey,
+                    request.occurredAt()
+            );
+        }
+
+        DebtPaymentResponse response = debtService.payDebt(debtId, request);
+
+        return ResponseEntity
+                .status(response.idempotentReplay()
+                        ? HttpStatus.OK
+                        : HttpStatus.CREATED)
+                .body(response);
     }
 }

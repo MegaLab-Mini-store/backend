@@ -22,6 +22,10 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import kg.megalab.ministorebackend.repository.DebtPaymentRepository;
+import kg.megalab.ministorebackend.entity.DebtPayment;
+import kg.megalab.ministorebackend.exception.DebtOverpaymentException;
+import kg.megalab.ministorebackend.entity.PaymentMethod;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -41,6 +45,9 @@ class DebtServiceTest {
 
     @Mock
     private ClientService clientService;
+
+    @Mock
+    private DebtPaymentRepository debtPaymentRepository;
 
     @InjectMocks
     private DebtService debtService;
@@ -193,4 +200,394 @@ class DebtServiceTest {
         assertEquals(12L, result.items().getFirst().id());
         assertEquals(7000L, result.items().getFirst().remainingAmount());
     }
+
+    @Test
+    @DisplayName("Частичное погашение наличными уменьшает остаток долга")
+    void payDebt_PartialCashPayment_Success() {
+        Client client = createTestClient(1L, "Азамат");
+
+        Debt debt = createTestDebt(
+                10L, client, null, 15000L, 15000L, DebtStatus.OPEN
+        );
+
+        DebtPaymentRequest request = new DebtPaymentRequest(
+                5000L, "cash", "payment-001", null
+        );
+
+        when(debtRepository.findByIdForUpdate(10L))
+                .thenReturn(Optional.of(debt));
+
+        when(debtPaymentRepository.findByClientUuid("payment-001"))
+                .thenReturn(Optional.empty());
+
+        when(debtPaymentRepository.save(any(DebtPayment.class)))
+                .thenAnswer(invocation -> {
+                    DebtPayment payment = invocation.getArgument(0);
+                    ReflectionTestUtils.setField(payment, "id", 1L);
+                    ReflectionTestUtils.setField(
+                            payment, "createdAt", OffsetDateTime.now()
+                    );
+                    return payment;
+                });
+
+        DebtPaymentResponse response = debtService.payDebt(10L, request);
+
+        assertEquals(1L, response.id());
+        assertEquals(10L, response.debtId());
+        assertEquals(5000L, response.amount());
+        assertEquals("cash", response.paymentMethod());
+        assertFalse(response.idempotentReplay());
+
+        assertEquals(10000L, debt.getRemainingAmount());
+        assertEquals(DebtStatus.OPEN, debt.getStatus());
+
+        verify(debtPaymentRepository).lockByClientUuid("payment-001");
+        verify(debtPaymentRepository).save(any(DebtPayment.class));
+    }
+
+    @Test
+    @DisplayName("Полное погашение картой закрывает долг")
+    void payDebt_FullCardPayment_Success() {
+        Client client = createTestClient(1L, "Азамат");
+
+        Debt debt = createTestDebt(
+                10L, client, null, 15000L, 15000L, DebtStatus.OPEN
+        );
+
+        DebtPaymentRequest request = new DebtPaymentRequest(
+                15000L, "card", "payment-002", null
+        );
+
+        when(debtRepository.findByIdForUpdate(10L))
+                .thenReturn(Optional.of(debt));
+
+        when(debtPaymentRepository.findByClientUuid("payment-002"))
+                .thenReturn(Optional.empty());
+
+        when(debtPaymentRepository.save(any(DebtPayment.class)))
+                .thenAnswer(invocation -> {
+                    DebtPayment payment = invocation.getArgument(0);
+                    ReflectionTestUtils.setField(payment, "id", 2L);
+                    ReflectionTestUtils.setField(
+                            payment, "createdAt", OffsetDateTime.now()
+                    );
+                    return payment;
+                });
+
+        DebtPaymentResponse response = debtService.payDebt(10L, request);
+
+        assertEquals(2L, response.id());
+        assertEquals(10L, response.debtId());
+        assertEquals(15000L, response.amount());
+        assertEquals("card", response.paymentMethod());
+        assertFalse(response.idempotentReplay());
+
+        assertEquals(0L, debt.getRemainingAmount());
+        assertEquals(DebtStatus.CLOSED, debt.getStatus());
+
+        verify(debtPaymentRepository).lockByClientUuid("payment-002");
+        verify(debtPaymentRepository).save(any(DebtPayment.class));
+    }
+
+    @Test
+    @DisplayName("Погашение сверх остатка долга запрещено")
+    void payDebt_Overpayment_ThrowsException() {
+        Client client = createTestClient(1L, "Азамат");
+
+        Debt debt = createTestDebt(
+                10L, client, null, 15000L, 10000L, DebtStatus.OPEN
+        );
+
+        DebtPaymentRequest request = new DebtPaymentRequest(
+                12000L, "cash", null, null
+        );
+
+        when(debtRepository.findByIdForUpdate(10L))
+                .thenReturn(Optional.of(debt));
+
+        DebtOverpaymentException ex = assertThrows(
+                DebtOverpaymentException.class,
+                () -> debtService.payDebt(10L, request)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals(
+                "DEBT_OVERPAYMENT",
+                ex.getBody().getProperties().get("errorCode")
+        );
+
+        assertEquals(10000L, debt.getRemainingAmount());
+        assertEquals(DebtStatus.OPEN, debt.getStatus());
+
+        verify(debtPaymentRepository, never())
+                .save(any(DebtPayment.class));
+    }
+
+    @Test
+    @DisplayName("Нулевая и отрицательная суммы погашения запрещены")
+    void payDebt_InvalidAmount_ThrowsException() {
+        Client client = createTestClient(1L, "Азамат");
+
+        Debt debt = createTestDebt(
+                10L, client, null, 15000L, 10000L, DebtStatus.OPEN
+        );
+
+        when(debtRepository.findByIdForUpdate(10L))
+                .thenReturn(Optional.of(debt));
+
+        for (long amount : new long[]{0L, -5000L}) {
+            DebtPaymentRequest request = new DebtPaymentRequest(
+                    amount, "cash", null, null
+            );
+
+            InvalidDebtException ex = assertThrows(
+                    InvalidDebtException.class,
+                    () -> debtService.payDebt(10L, request)
+            );
+
+            assertEquals(
+                    HttpStatus.UNPROCESSABLE_CONTENT,
+                    ex.getStatusCode()
+            );
+
+            assertEquals(
+                    "VALIDATION_ERROR",
+                    ex.getBody().getProperties().get("errorCode")
+            );
+        }
+
+        assertEquals(10000L, debt.getRemainingAmount());
+        assertEquals(DebtStatus.OPEN, debt.getStatus());
+
+        verify(debtPaymentRepository, never())
+                .save(any(DebtPayment.class));
+    }
+
+    @Test
+    @DisplayName("Некорректный способ погашения долга запрещён")
+    void payDebt_InvalidPaymentMethod_ThrowsException() {
+        Client client = createTestClient(1L, "Азамат");
+
+        Debt debt = createTestDebt(
+                10L, client, null, 15000L, 10000L, DebtStatus.OPEN
+        );
+
+        when(debtRepository.findByIdForUpdate(10L))
+                .thenReturn(Optional.of(debt));
+
+        for (String method : new String[]{"debt", "unknown", "", null}) {
+            DebtPaymentRequest request = new DebtPaymentRequest(
+                    5000L, method, null, null
+            );
+
+            InvalidDebtException ex = assertThrows(
+                    InvalidDebtException.class,
+                    () -> debtService.payDebt(10L, request)
+            );
+
+            assertEquals(
+                    HttpStatus.UNPROCESSABLE_CONTENT,
+                    ex.getStatusCode()
+            );
+
+            assertEquals(
+                    "VALIDATION_ERROR",
+                    ex.getBody().getProperties().get("errorCode")
+            );
+        }
+
+        assertEquals(10000L, debt.getRemainingAmount());
+        assertEquals(DebtStatus.OPEN, debt.getStatus());
+
+        verify(debtPaymentRepository, never())
+                .save(any(DebtPayment.class));
+    }
+
+    @Test
+    @DisplayName("Погашение несуществующего долга возвращает ошибку 404")
+    void payDebt_DebtNotFound_ThrowsException() {
+        DebtPaymentRequest request = new DebtPaymentRequest(
+                5000L, "cash", null, null
+        );
+
+        when(debtRepository.findByIdForUpdate(999L))
+                .thenReturn(Optional.empty());
+
+        DebtNotFoundException ex = assertThrows(
+                DebtNotFoundException.class,
+                () -> debtService.payDebt(999L, request)
+        );
+
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+
+        assertEquals(
+                "DEBT_NOT_FOUND",
+                ex.getBody().getProperties().get("errorCode")
+        );
+
+        verifyNoInteractions(debtPaymentRepository);
+    }
+
+    @Test
+    @DisplayName("Повторный платёж не уменьшает остаток долга повторно")
+    void payDebt_IdempotentReplay_ReturnsExistingPayment() {
+        Client client = createTestClient(1L, "Азамат");
+
+        Debt debt = createTestDebt(
+                10L, client, null, 15000L, 10000L, DebtStatus.OPEN
+        );
+
+        DebtPayment existingPayment = DebtPayment.create(
+                debt, "payment-003", 5000L, PaymentMethod.CASH, null
+        );
+
+        ReflectionTestUtils.setField(existingPayment, "id", 3L);
+        ReflectionTestUtils.setField(
+                existingPayment, "createdAt", OffsetDateTime.now()
+        );
+
+        DebtPaymentRequest request = new DebtPaymentRequest(
+                5000L, "cash", "payment-003", null
+        );
+
+        when(debtRepository.findByIdForUpdate(10L))
+                .thenReturn(Optional.of(debt));
+
+        when(debtPaymentRepository.findByClientUuid("payment-003"))
+                .thenReturn(Optional.of(existingPayment));
+
+        DebtPaymentResponse response = debtService.payDebt(10L, request);
+
+        assertEquals(3L, response.id());
+        assertEquals(10L, response.debtId());
+        assertEquals(5000L, response.amount());
+        assertEquals("cash", response.paymentMethod());
+        assertTrue(response.idempotentReplay());
+
+        assertEquals(10000L, debt.getRemainingAmount());
+        assertEquals(DebtStatus.OPEN, debt.getStatus());
+
+        verify(debtPaymentRepository).lockByClientUuid("payment-003");
+
+        verify(debtPaymentRepository, never())
+                .save(any(DebtPayment.class));
+    }
+
+    @Test
+    @DisplayName("Повторный ключ с другими данными платежа запрещён")
+    void payDebt_IdempotencyConflict_ThrowsException() {
+        Client client = createTestClient(1L, "Азамат");
+
+        Debt debt = createTestDebt(
+                10L, client, null, 15000L, 10000L, DebtStatus.OPEN
+        );
+
+        DebtPayment existingPayment = DebtPayment.create(
+                debt, "payment-004", 5000L, PaymentMethod.CASH, null
+        );
+
+        when(debtRepository.findByIdForUpdate(10L))
+                .thenReturn(Optional.of(debt));
+
+        when(debtPaymentRepository.findByClientUuid("payment-004"))
+                .thenReturn(Optional.of(existingPayment));
+
+        List<DebtPaymentRequest> requests = List.of(
+                new DebtPaymentRequest(
+                        3000L, "cash", "payment-004", null
+                ),
+                new DebtPaymentRequest(
+                        5000L, "card", "payment-004", null
+                )
+        );
+
+        for (DebtPaymentRequest request : requests) {
+            InvalidDebtException ex = assertThrows(
+                    InvalidDebtException.class,
+                    () -> debtService.payDebt(10L, request)
+            );
+
+            assertEquals(
+                    HttpStatus.UNPROCESSABLE_CONTENT,
+                    ex.getStatusCode()
+            );
+
+            assertEquals(
+                    "VALIDATION_ERROR",
+                    ex.getBody().getProperties().get("errorCode")
+            );
+        }
+
+        assertEquals(10000L, debt.getRemainingAmount());
+        assertEquals(DebtStatus.OPEN, debt.getStatus());
+
+        verify(debtPaymentRepository, never())
+                .save(any(DebtPayment.class));
+    }
+
+    @Test
+    @DisplayName("Карточка долга возвращает историю погашений")
+    void getDebtById_ReturnsPaymentHistory() {
+        Client client = createTestClient(1L, "Азамат");
+
+        Debt debt = createTestDebt(
+                10L, client, null, 15000L, 7000L, DebtStatus.OPEN
+        );
+
+        DebtPayment firstPayment = DebtPayment.create(
+                debt, "payment-005", 5000L, PaymentMethod.CASH, null
+        );
+
+        DebtPayment secondPayment = DebtPayment.create(
+                debt, "payment-006", 3000L, PaymentMethod.CARD, null
+        );
+
+        ReflectionTestUtils.setField(firstPayment, "id", 1L);
+        ReflectionTestUtils.setField(secondPayment, "id", 2L);
+
+        OffsetDateTime now = OffsetDateTime.now();
+
+        ReflectionTestUtils.setField(
+                firstPayment, "createdAt", now.minusDays(1)
+        );
+
+        ReflectionTestUtils.setField(
+                secondPayment, "createdAt", now
+        );
+
+        when(debtRepository.findWithClientById(10L))
+                .thenReturn(Optional.of(debt));
+
+        when(debtPaymentRepository
+                .findAllByDebtIdOrderByCreatedAtDescIdDesc(10L))
+                .thenReturn(List.of(secondPayment, firstPayment));
+
+        DebtResponse response = debtService.getDebtById(10L);
+
+        assertEquals(10L, response.id());
+        assertEquals(7000L, response.remainingAmount());
+        assertEquals(2, response.payments().size());
+
+        DebtPaymentResponse latest =
+                (DebtPaymentResponse) response.payments().get(0);
+
+        DebtPaymentResponse oldest =
+                (DebtPaymentResponse) response.payments().get(1);
+
+        assertEquals(2L, latest.id());
+        assertEquals(3000L, latest.amount());
+        assertEquals("card", latest.paymentMethod());
+
+        assertEquals(1L, oldest.id());
+        assertEquals(5000L, oldest.amount());
+        assertEquals("cash", oldest.paymentMethod());
+
+        assertFalse(latest.idempotentReplay());
+        assertFalse(oldest.idempotentReplay());
+
+        verify(debtPaymentRepository)
+                .findAllByDebtIdOrderByCreatedAtDescIdDesc(10L);
+    }
+
+
 }
