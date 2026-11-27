@@ -31,39 +31,24 @@ class BonusAccrualTest {
     @Autowired SyncService syncService;
     @Autowired JdbcClient jdbc;
 
+    String runPrefix;
     Long userId;
     Long breadId;
 
     @BeforeEach
     void setUp() {
-        jdbc.sql("""
-                DELETE FROM bonus_transactions
-                 WHERE client_id IN (SELECT id FROM clients WHERE client_code LIKE 'TEST-US27-%')
-                """).update();
-        jdbc.sql("""
-                DELETE FROM inventory_movements
-                 WHERE product_id IN (SELECT id FROM products WHERE barcode LIKE 'TEST-US27-%')
-                """).update();
-        jdbc.sql("""
-                DELETE FROM sale_items
-                 WHERE product_id IN (SELECT id FROM products WHERE barcode LIKE 'TEST-US27-%')
-                """).update();
-        jdbc.sql("DELETE FROM sales WHERE client_uuid LIKE 'test-us27-%'").update();
-        jdbc.sql("DELETE FROM sync_operations WHERE client_uuid LIKE 'test-us27-%'").update();
-        jdbc.sql("DELETE FROM clients WHERE client_code LIKE 'TEST-US27-%'").update();
-        jdbc.sql("DELETE FROM loyalty_levels WHERE name LIKE 'test-us27-%'").update();
-        jdbc.sql("DELETE FROM products WHERE barcode LIKE 'TEST-US27-%'").update();
+        runPrefix = "US27-" + System.nanoTime();
 
         userId = jdbc.sql("""
                 INSERT INTO users (username, password_hash, role, created_at)
-                VALUES ('test-us27-cashier', 'hash', 'OWNER', now())
-                ON CONFLICT (username) DO UPDATE SET username = EXCLUDED.username
+                VALUES (:username, 'hash', 'OWNER', now())
                 RETURNING id
-                """).query(Long.class).single();
+                """).param("username", "cashier-" + runPrefix).query(Long.class).single();
+
         breadId = jdbc.sql("""
                 INSERT INTO products (barcode, name, purchase_price, sale_price, stock_quantity, updated_at)
-                VALUES ('TEST-US27-BREAD', 'Хлеб', 1000, 5000, 100, now()) RETURNING id
-                """).query(Long.class).single();
+                VALUES (:barcode, 'Хлеб', 1000, 5000, 100, now()) RETURNING id
+                """).param("barcode", "BARCODE-" + runPrefix).query(Long.class).single();
     }
 
     // Критерии 1, 2, 5: продажа с клиентом 2% от 700 сом -> 14 сом бонусов, баланс и история
@@ -165,10 +150,12 @@ class BonusAccrualTest {
     // Критерий 4: повтор через синхронизацию -> duplicate, бонус начислен один раз
     @Test
     void repeatedSyncDoesNotAccrueTwice() {
+        String uniqueCode = "TEST-US27-REPEAT-" + runPrefix;
+        String uniqueUuid = "test-us27-0007-" + runPrefix;
         Long clientId = createClient("TEST-US27-REPEAT", 200, 0L);
-        SyncOperationRequest operation = new SyncOperationRequest("sale", "test-us27-0007", Map.of(
+        SyncOperationRequest operation = new SyncOperationRequest("sale", uniqueUuid, Map.of(
                 "payment_method", "cash",
-                "client_code", "TEST-US27-REPEAT",
+                "client_code", uniqueCode,
                 "items", List.of(Map.of("product_id", breadId, "quantity", 7, "unit_price", 10000))));
 
         SyncOperationResponse first = pushOne(operation);
@@ -198,7 +185,9 @@ class BonusAccrualTest {
     }
 
     private CompleteSaleRequest saleWithClient(String clientUuid, String clientCode, int quantity, long unitPrice) {
-        return new CompleteSaleRequest(clientUuid, PaymentMethod.CASH, null, null, clientCode, null, // US-27: null = debt_reminder_date
+        String uniqueUuid = clientUuid + "-" + runPrefix;
+        String uniqueCode = clientCode == null ? null : clientCode + "-" + runPrefix;
+        return new CompleteSaleRequest(uniqueUuid, PaymentMethod.CASH, null, null, uniqueCode, null,
                 List.of(new CompleteSaleItemRequest(breadId, quantity, unitPrice)));
     }
 
@@ -207,15 +196,16 @@ class BonusAccrualTest {
     }
 
     private Long createClient(String clientCode, int cashbackPercentage, long bonusBalance) {
+        String uniqueCode = clientCode + "-" + runPrefix;
         Long levelId = jdbc.sql("""
                 INSERT INTO loyalty_levels (name, cashback_percentage)
                 VALUES (:name, :percent) RETURNING id
-                """).param("name", "test-us27-" + clientCode).param("percent", cashbackPercentage)
+                """).param("name", "lvl-" + uniqueCode).param("percent", cashbackPercentage)
                 .query(Long.class).single();
         return jdbc.sql("""
                 INSERT INTO clients (client_code, name, loyalty_level_id, bonus_balance, is_active, created_at, updated_at)
                 VALUES (:code, 'Тест', :level, :balance, true, now(), now()) RETURNING id
-                """).param("code", clientCode).param("level", levelId).param("balance", bonusBalance)
+                """).param("code", uniqueCode).param("level", levelId).param("balance", bonusBalance)
                 .query(Long.class).single();
     }
 

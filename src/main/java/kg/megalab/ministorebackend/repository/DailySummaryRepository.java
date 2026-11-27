@@ -1,5 +1,6 @@
 package kg.megalab.ministorebackend.repository;
 
+import kg.megalab.ministorebackend.dto.OperationType;
 import kg.megalab.ministorebackend.dto.ProductDayMovement;
 import kg.megalab.ministorebackend.dto.StockMovementResponse;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -101,6 +102,7 @@ public class DailySummaryRepository {
                 .query((rs, n) -> new StockMovementResponse(
                         rs.getLong("id"),
                         rs.getString("operation_type"),
+                        OperationType.label(rs.getString("operation_type")),
                         rs.getInt("quantity_change"),
                         rs.getObject("quantity_after", Integer.class),
                         rs.getObject("reference_id", Long.class),
