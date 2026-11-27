@@ -20,6 +20,13 @@ public record DebtResponse(
         List<Object> reminders
 ) {
     public static DebtResponse from(Debt debt) {
+        return from(debt, List.of());
+    }
+
+    public static DebtResponse from(
+            Debt debt,
+            List<DebtPaymentResponse> payments
+    ) {
         return new DebtResponse(
                 debt.getId(),
                 debt.getClient().getId(),
@@ -30,7 +37,7 @@ public record DebtResponse(
                 debt.getStatus().name().toLowerCase(),
                 debt.getReminderDate(),
                 debt.getCreatedAt(),
-                List.of(),
+                List.copyOf(payments),
                 List.of()
         );
     }

@@ -11,6 +11,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import kg.megalab.ministorebackend.entity.DebtPayment;
+import kg.megalab.ministorebackend.entity.PaymentMethod;
+import kg.megalab.ministorebackend.repository.DebtPaymentRepository;
+import java.util.Objects;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -22,6 +26,7 @@ public class DebtService {
 
     private final DebtRepository debtRepository;
     private final ClientService clientService;
+    private final DebtPaymentRepository debtPaymentRepository;
 
     @Transactional
     public DebtResponse createManualDebt(DebtCreateRequest request) {
@@ -57,7 +62,14 @@ public class DebtService {
     public DebtResponse getDebtById(Long debtId) {
         Debt debt = debtRepository.findWithClientById(debtId)
                 .orElseThrow(() -> new DebtNotFoundException(debtId));
-        return DebtResponse.from(debt);
+
+        List<DebtPaymentResponse> payments = debtPaymentRepository
+                .findAllByDebtIdOrderByCreatedAtDescIdDesc(debtId)
+                .stream()
+                .map(payment -> DebtPaymentResponse.from(payment, false))
+                .toList();
+
+        return DebtResponse.from(debt, payments);
     }
 
     @Transactional(readOnly = true)
@@ -73,6 +85,72 @@ public class DebtService {
 
         return new PageResponse<>(items, debtsPage.getTotalElements(), limit, offset);
     }
+
+    @Transactional
+    public DebtPaymentResponse payDebt(Long debtId, DebtPaymentRequest request) {
+
+        if (request.clientUuid() != null) {
+            debtPaymentRepository.lockByClientUuid(request.clientUuid());
+        }
+
+        Debt debt = debtRepository.findByIdForUpdate(debtId)
+                .orElseThrow(() -> new DebtNotFoundException(debtId));
+
+        if (request.amount() == null || request.amount() <= 0) {
+            throw new InvalidDebtException(
+                    "Сумма погашения должна быть больше нуля"
+            );
+        }
+
+        if (request.paymentMethod() == null) {
+            throw new InvalidDebtException(
+                    "Не указан способ оплаты"
+            );
+        }
+
+        PaymentMethod paymentMethod = switch (request.paymentMethod()) {
+            case "cash" -> PaymentMethod.CASH;
+            case "card" -> PaymentMethod.CARD;
+            default -> throw new InvalidDebtException(
+                    "Недопустимый способ оплаты"
+            );
+        };
+
+        if (request.clientUuid() != null) {
+            var existingPayment = debtPaymentRepository
+                    .findByClientUuid(request.clientUuid());
+
+            if (existingPayment.isPresent()) {
+                DebtPayment payment = existingPayment.get();
+
+                if (!Objects.equals(payment.getDebt().getId(), debtId)
+                        || !Objects.equals(payment.getAmount(), request.amount())
+                        || payment.getPaymentMethod() != paymentMethod) {
+
+                    throw new InvalidDebtException(
+                            "client_uuid уже используется для другого платежа"
+                    );
+                }
+
+                return DebtPaymentResponse.from(payment, true);
+            }
+        }
+
+        debt.applyPayment(request.amount());
+
+        DebtPayment payment = DebtPayment.create(
+                debt,
+                request.clientUuid(),
+                request.amount(),
+                paymentMethod,
+                request.occurredAt()
+        );
+
+        DebtPayment saved = debtPaymentRepository.save(payment);
+
+        return DebtPaymentResponse.from(saved, false);
+    }
+
 
     private DebtStatus parseStatusFilter(String statusParam) {
         if (statusParam == null || statusParam.isBlank()) {
