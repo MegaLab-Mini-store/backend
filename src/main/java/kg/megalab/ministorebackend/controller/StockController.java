@@ -1,6 +1,6 @@
 package kg.megalab.ministorebackend.controller;
 
-import kg.megalab.ministorebackend.dto.StockMovementResponse;
+import kg.megalab.ministorebackend.dto.StockMovementsPage;
 import kg.megalab.ministorebackend.service.StockQueryService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -26,9 +25,12 @@ public class StockController {
         return Map.of("productId", productId, "stockQuantity", service.currentStock(productId));
     }
 
+    /** GET /api/v1/products/5/movements?direction=IN&page=0&size=50 */
     @GetMapping("/{productId}/movements")
-    public List<StockMovementResponse> movements(@PathVariable Long productId,
-                                                 @RequestParam(defaultValue = "50") int limit) {
-        return service.movements(productId, limit);
+    public StockMovementsPage movements(@PathVariable Long productId,
+                                        @RequestParam(required = false) String direction,
+                                        @RequestParam(defaultValue = "0") int page,
+                                        @RequestParam(defaultValue = "50") int size) {
+        return service.movements(productId, direction, page, size);
     }
 }

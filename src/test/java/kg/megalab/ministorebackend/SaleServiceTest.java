@@ -32,25 +32,15 @@ class SaleServiceTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.sql("""
-                DELETE FROM inventory_movements
-                 WHERE product_id IN (SELECT id FROM products WHERE barcode LIKE 'TEST-US15-%')
-                """).update();
-        jdbc.sql("""
-                DELETE FROM sale_items
-                 WHERE product_id IN (SELECT id FROM products WHERE barcode LIKE 'TEST-US15-%')
-                """).update();
-        jdbc.sql("DELETE FROM sales WHERE client_uuid LIKE 'test-us15-%'").update();
-        jdbc.sql("DELETE FROM products WHERE barcode LIKE 'TEST-US15-%'").update();
+        long suffix = System.nanoTime();
 
         userId = jdbc.sql("""
                 INSERT INTO users (username, password_hash, role, created_at)
-                VALUES ('test-us15-cashier', 'hash', 'OWNER', now())
-                ON CONFLICT (username) DO UPDATE SET username = EXCLUDED.username
+                VALUES (:u, 'hash', 'OWNER', now())
                 RETURNING id
-                """).query(Long.class).single();
-        breadId = createProduct("TEST-US15-BREAD", "Хлеб", 10);
-        waterId = createProduct("TEST-US15-WATER", "Вода", 1);
+                """).param("u", "test-us15-cashier-" + suffix).query(Long.class).single();
+        breadId = createProduct("TEST-US15-BREAD-" + suffix, "Хлеб", 10);
+        waterId = createProduct("TEST-US15-WATER-" + suffix, "Вода", 1);
     }
 
     // Критерий 1: продажа создаётся, сумма по цене с телефона

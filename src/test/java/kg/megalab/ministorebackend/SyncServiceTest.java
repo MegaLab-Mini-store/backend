@@ -24,76 +24,71 @@ class SyncServiceTest {
     @Autowired SyncService syncService;
     @Autowired JdbcClient jdbc;
 
+    String runPrefix;
     Long userId;
     Long breadId;
 
     @BeforeEach
     void setUp() {
-        jdbc.sql("""
-                DELETE FROM inventory_movements
-                 WHERE product_id IN (SELECT id FROM products WHERE barcode LIKE 'TEST-US03-%')
-                """).update();
-        jdbc.sql("""
-                DELETE FROM sale_items
-                 WHERE product_id IN (SELECT id FROM products WHERE barcode LIKE 'TEST-US03-%')
-                """).update();
-        jdbc.sql("DELETE FROM sales WHERE client_uuid LIKE 'test-us03-%'").update();
-        jdbc.sql("DELETE FROM sync_operations WHERE client_uuid LIKE 'test-us03-%'").update();
-        jdbc.sql("DELETE FROM products WHERE barcode LIKE 'TEST-US03-%'").update();
+        runPrefix = "US03-" + System.nanoTime();
 
         userId = jdbc.sql("""
                 INSERT INTO users (username, password_hash, role, created_at)
-                VALUES ('test-us03-cashier', 'hash', 'OWNER', now())
-                ON CONFLICT (username) DO UPDATE SET username = EXCLUDED.username
+                VALUES (:username, 'hash', 'OWNER', now())
                 RETURNING id
-                """).query(Long.class).single();
+                """).param("username", "cashier-" + runPrefix).query(Long.class).single();
+
         breadId = jdbc.sql("""
                 INSERT INTO products (barcode, name, purchase_price, sale_price, stock_quantity, updated_at)
-                VALUES ('TEST-US03-BREAD', 'Хлеб', 1000, 5000, 10, now()) RETURNING id
-                """).query(Long.class).single();
+                VALUES (:barcode, 'Хлеб', 1000, 5000, 10, now()) RETURNING id
+                """).param("barcode", "BARCODE-" + runPrefix).query(Long.class).single();
     }
 
-    // Критерий 2: новая операция сохраняется с номером, ответ applied
+    private String uuid(String base) {
+        return base + "-" + runPrefix;
+    }
+
     @Test
     void newSaleIsApplied() {
-        SyncOperationResponse result = pushOne(sale("test-us03-0001", 2, 4500L));
+        String id = uuid("test-us03-0001");
+        SyncOperationResponse result = pushOne(sale(id, 2, 4500L));
 
         assertEquals(SyncStatus.APPLIED, result.status());
         assertEquals(9000L, result.totalAmount());
         assertNotNull(result.serverId());
         assertEquals(8, stock());
-        assertEquals("ACCEPTED", journalStatus("test-us03-0001"));
+        assertEquals("ACCEPTED", journalStatus(id));
     }
 
-    // Критерий 4: повтор не создаёт вторую продажу и не списывает товар второй раз
     @Test
     void repeatIsDuplicate() {
-        SyncOperationResponse first = pushOne(sale("test-us03-0002", 2, 4500L));
-        SyncOperationResponse second = pushOne(sale("test-us03-0002", 2, 4500L));
+        String id = uuid("test-us03-0002");
+        SyncOperationResponse first = pushOne(sale(id, 2, 4500L));
+        SyncOperationResponse second = pushOne(sale(id, 2, 4500L));
 
         assertEquals(SyncStatus.DUPLICATE, second.status());
         assertEquals(first.serverId(), second.serverId());
         assertEquals(9000L, second.totalAmount());
-        assertEquals(1, countSales("test-us03-0002"));
+        assertEquals(1, countSales(id));
         assertEquals(8, stock());
     }
 
-    // Тот же номер с другими данными: отказ, первая продажа не меняется
     @Test
     void sameUuidWithOtherDataIsRejected() {
-        pushOne(sale("test-us03-0003", 2, 4500L));
-        SyncOperationResponse second = pushOne(sale("test-us03-0003", 3, 4500L));
+        String id = uuid("test-us03-0003");
+        pushOne(sale(id, 2, 4500L));
+        SyncOperationResponse second = pushOne(sale(id, 3, 4500L));
 
         assertEquals(SyncStatus.REJECTED, second.status());
         assertEquals("IDEMPOTENCY_PAYLOAD_MISMATCH", second.errorCode());
-        assertEquals(1, countSales("test-us03-0003"));
+        assertEquals(1, countSales(id));
         assertEquals(8, stock());
     }
 
-    // Отклонённая операция записана в журнал, повтор снова получает отказ
     @Test
     void rejectedSaleStaysRejected() {
-        SyncOperationRequest unknownProduct = new SyncOperationRequest("sale", "test-us03-0004",
+        String id = uuid("test-us03-0004");
+        SyncOperationRequest unknownProduct = new SyncOperationRequest("sale", id,
                 Map.of("payment_method", "cash",
                         "items", List.of(Map.of("product_id", 999999, "quantity", 1, "unit_price", 1000))));
 
@@ -103,17 +98,19 @@ class SyncServiceTest {
         assertEquals("PRODUCT_NOT_FOUND", first.errorCode());
         assertEquals(SyncStatus.REJECTED, second.status());
         assertEquals("PRODUCT_NOT_FOUND", second.errorCode());
-        assertEquals("REJECTED", journalStatus("test-us03-0004"));
-        assertEquals(0, countSales("test-us03-0004"));
+        assertEquals("REJECTED", journalStatus(id));
+        assertEquals(0, countSales(id));
     }
 
-    // Сбой одной операции не отменяет остальные, порядок ответов как в запросе
     @Test
     void badOperationDoesNotCancelOthers() {
+        String id1 = uuid("test-us03-0005");
+        String id2 = uuid("test-us03-0006");
+        String id3 = uuid("test-us03-0007");
         List<SyncOperationResponse> results = syncService.push(userId, new SyncPushRequest(List.of(
-                sale("test-us03-0005", 1, 5000L),
-                sale("test-us03-0006", 0, 5000L),
-                sale("test-us03-0007", 1, 5000L)))).results();
+                sale(id1, 1, 5000L),
+                sale(id2, 0, 5000L),
+                sale(id3, 1, 5000L)))).results();
 
         assertEquals(SyncStatus.APPLIED, results.get(0).status());
         assertEquals(SyncStatus.REJECTED, results.get(1).status());
@@ -122,17 +119,16 @@ class SyncServiceTest {
         assertEquals(8, stock());
     }
 
-    // Тип, который пока не поддерживается: отказ без записи в журнал
     @Test
     void unsupportedOperationIsNotSaved() {
-        SyncOperationResponse result = pushOne(new SyncOperationRequest("delivery", "test-us03-0008",
+        String id = uuid("test-us03-0008");
+        SyncOperationResponse result = pushOne(new SyncOperationRequest("delivery", id,
                 Map.of("items", List.of())));
 
         assertEquals("OPERATION_NOT_SUPPORTED", result.errorCode());
-        assertNull(journalStatus("test-us03-0008"));
+        assertNull(journalStatus(id));
     }
 
-    // Сломан сам запрос: ошибка на всю пачку
     @Test
     void emptyBatchIsInvalid() {
         assertThrows(InvalidSyncRequestException.class,
@@ -141,9 +137,10 @@ class SyncServiceTest {
 
     @Test
     void syncSaleSavesCardPaymentMethod() {
+        String id = uuid("test-us03-0017");
         SyncOperationRequest operation = new SyncOperationRequest(
                 "sale",
-                "test-us03-0017",
+                id,
                 Map.of(
                         "payment_method", "card",
                         "items", List.of(Map.of(
@@ -161,7 +158,7 @@ class SyncServiceTest {
         String paymentMethod = jdbc.sql(
                         "SELECT payment_method FROM sales WHERE client_uuid = :uuid"
                 )
-                .param("uuid", "test-us03-0017")
+                .param("uuid", id)
                 .query(String.class)
                 .single();
 

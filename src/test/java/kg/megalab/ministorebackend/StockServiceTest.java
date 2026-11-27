@@ -35,15 +35,11 @@ class StockServiceTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.sql("""
-                DELETE FROM inventory_movements
-                 WHERE product_id IN (SELECT id FROM products WHERE barcode = 'TEST-STOCK')
-                """).update();
-        jdbc.sql("DELETE FROM products WHERE barcode = 'TEST-STOCK'").update();
+        String barcode = "TEST-STOCK-" + System.nanoTime();
         productId = jdbc.sql("""
-                INSERT INTO products (barcode, name, purchase_price, sale_price, stock_quantity, updated_at)
-                VALUES ('TEST-STOCK', 'Тест', 100, 150, 5, now()) RETURNING id
-                """).query(Long.class).single();
+            INSERT INTO products (barcode, name, purchase_price, sale_price, stock_quantity, updated_at)
+            VALUES (:b, 'Тест', 100, 150, 5, now()) RETURNING id
+            """).param("b", barcode).query(Long.class).single();
     }
 
     private int stockOf() {
